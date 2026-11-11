@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en" style="height:100%">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAT Tutoring · Log in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body style="height:100%">
+<div class="login">
+  <div class="login-card">
+    <div class="brand"><span class="dot" aria-hidden="true"></span><span>SAT Tutoring</span></div>
+    <h1>Log in</h1>
+    <div class="seg" role="group" aria-label="Who are you?">
+      <button type="button" id="asStudent" aria-pressed="true">I'm a student</button>
+      <button type="button" id="asTutor" aria-pressed="false">I'm the tutor</button>
+    </div>
+    <form class="card" id="form" novalidate>
+      <label class="f" for="name">Your name <span class="hint" id="nameHint">First name and last initial, like “Riley Z.”</span><input type="text" id="name" autocomplete="name" required></label>
+      <label class="f" for="pw" id="pwWrap" hidden>Password<input type="password" id="pw" autocomplete="current-password"></label>
+      <p class="err" id="err" role="alert"></p>
+      <div id="newBox" class="callout" hidden>
+        <p>We don't have you on the list yet. If you're a new student, start a profile with this name.</p>
+        <div class="actions" style="margin-top:8px"><button type="button" class="btn primary small" id="createBtn">I'm new, start my profile</button><button type="button" class="btn small" id="retryBtn">Let me fix my name</button></div>
+      </div>
+      <button type="submit" class="btn primary" id="go">Continue</button>
+    </form>
+  </div>
+</div>
+<script src="/assets/common.js"></script>
+<script>
+(() => {
+  const { $, api } = SAT;
+  let role = "student";
+  const setRole = (r) => {
+    role = r;
+    $("#asStudent").setAttribute("aria-pressed", String(r === "student"));
+    $("#asTutor").setAttribute("aria-pressed", String(r === "tutor"));
+    $("#pwWrap").hidden = r !== "tutor";
+    $("#nameHint").textContent = r === "tutor" ? "" : "First name and last initial, like “Riley Z.”";
+    $("#newBox").hidden = true; $("#err").textContent = ""; $("#go").hidden = false;
+    $("#name").focus();
+  };
+  $("#asStudent").onclick = () => setRole("student");
+  $("#asTutor").onclick = () => setRole("tutor");
+  async function login(create) {
+    const name = $("#name").value.trim(), err = $("#err"); err.textContent = "";
+    if (!name) { err.textContent = "Type your name."; $("#name").focus(); return; }
+    if (role === "tutor" && !$("#pw").value) { err.textContent = "Type your password."; $("#pw").focus(); return; }
+    $("#go").disabled = true;
+    try {
+      const r = await api("/api/login", { body: { role, name, password: role === "tutor" ? $("#pw").value : undefined, create: !!create }, allow401: true });
+      if (r.notFound) { $("#newBox").hidden = false; $("#go").hidden = true; return; }
+      location.href = r.role === "tutor" ? "/tutor" : "/student";
+    } catch (e) { err.textContent = e.message; }
+    finally { $("#go").disabled = false; }
+  }
+  $("#form").addEventListener("submit", (e) => { e.preventDefault(); login(false); });
+  $("#createBtn").onclick = () => login(true);
+  $("#retryBtn").onclick = () => { $("#newBox").hidden = true; $("#go").hidden = false; $("#name").select(); };
+  api("/api/login", { allow401: true }).then((r) => { if (r.role === "tutor") location.href = "/tutor"; else if (r.role === "student") location.href = "/student"; }).catch(() => {});
+  $("#name").focus();
+})();
+</script>
+</body>
+</html>

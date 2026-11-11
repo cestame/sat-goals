@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My SAT Prep</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="dot" aria-hidden="true"></span><span>My SAT Prep</span></div>
+  <nav class="links"><span class="who-chip" id="who"></span><button type="button" class="linkbtn" id="logout">Log out</button></nav>
+</header>
+<main>
+  <div class="wrap" style="max-width:860px">
+    <div class="intro"><h1 id="hello">Hi!</h1><p class="welcome">Log the practice questions you do so we can spot patterns, and keep your goals up to date.</p></div>
+    <div class="tabs" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" id="tabQ" aria-selected="true" aria-controls="pQ">My questions</button>
+      <button type="button" role="tab" id="tabG" aria-selected="false" aria-controls="pG">My goals</button>
+    </div>
+    <section id="pQ" role="tabpanel" aria-labelledby="tabQ" class="grid" style="gap:18px">
+      <div class="card"><div class="head"><h2>Log a question</h2></div><p class="muted small">Log the ones you missed or guessed, and the right ones too if you can. Your tutor sees these.</p><div id="qForm"></div></div>
+      <div class="card"><div class="head"><h2>How you're doing</h2><span class="sp"></span><span class="muted small" id="qCount"></span></div><div id="acc"></div></div>
+      <div class="card"><div class="head"><h2>Your questions</h2><span class="sp"></span>
+        <select id="qFilter" aria-label="Show" style="width:auto"><option value="all">All</option><option value="miss">Missed or guessed</option><option value="RW">Reading &amp; Writing</option><option value="Math">Math</option></select></div>
+        <div id="qList"></div></div>
+    </section>
+    <section id="pG" role="tabpanel" aria-labelledby="tabG" hidden>
+<form id="goalForm" class="wrap" novalidate>
+        <div class="card">
+          <div class="sec-head"><span class="n">1</span><div><h2>About you</h2></div></div>
+          <div class="grid g2">
+            <label class="f" for="s_grade">Grade
+              <select id="s_grade"><option value="">Choose</option><option>9th</option><option>10th</option><option>11th</option><option>12th</option><option>Other</option></select>
+            </label>
+            <label class="f" for="s_school">School<input type="text" id="s_school"></label>
+            <label class="f" for="s_test">SAT test date <span class="hint">Leave blank if you haven't registered</span><input type="date" id="s_test"></label>
+            <label class="f" for="s_contact">Best way to reach you <span class="hint">Phone, email, or a parent's contact</span><input type="text" id="s_contact"></label>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="sec-head"><span class="n">2</span><div><h2>Where you are now</h2><p>Use your most recent official, PSAT, or full practice test. Skip it if you haven't taken one.</p></div></div>
+          <div class="grid g3">
+            <label class="f" for="s_rw">Reading &amp; Writing <span class="hint">200–800</span><input type="number" id="s_rw" min="200" max="800" step="10" inputmode="numeric"></label>
+            <label class="f" for="s_math">Math <span class="hint">200–800</span><input type="number" id="s_math" min="200" max="800" step="10" inputmode="numeric"></label>
+            <label class="f" for="s_src">That score came from
+              <select id="s_src"><option value="">Choose</option><option>Official SAT</option><option>PSAT</option><option>Bluebook practice test</option><option>Other practice test</option></select>
+            </label>
+            <label class="f" for="s_target">Target total <span class="hint">400–1600</span><input type="number" id="s_target" min="400" max="1600" step="10" inputmode="numeric"></label>
+          </div>
+          <div class="scoreline" id="scoreline" aria-live="polite"></div>
+        </div>
+
+        <div class="card">
+          <div class="sec-head"><span class="n">3</span><div><h2>What to work on</h2><p>Fill in every bubble that applies.</p></div></div>
+          <div class="bub-cols" id="bubbles"></div>
+        </div>
+
+        <div class="card">
+          <div class="sec-head"><span class="n">4</span><div><h2>Your main learnings</h2><p>In your own words, what do you most want to get out of our sessions? Put the most important one first.</p></div></div>
+          <div class="grid" id="goalInputs">
+            <div class="goal-row"><span class="k">1</span><input type="text" id="g1" aria-label="Goal 1" placeholder="e.g. Stop running out of time on Math module 2"></div>
+            <div class="goal-row"><span class="k">2</span><input type="text" id="g2" aria-label="Goal 2" placeholder="e.g. Understand comma and semicolon rules for good"></div>
+            <div class="goal-row"><span class="k">3</span><input type="text" id="g3" aria-label="Goal 3" placeholder="Optional"></div>
+          </div>
+          <label class="f" for="s_hard">What has been hardest so far?<textarea id="s_hard"></textarea></label>
+          <label class="f" for="s_else">Anything else I should know? <span class="hint">Accommodations, other commitments, how you like to learn</span><textarea id="s_else"></textarea></label>
+        </div>
+
+        <div class="card">
+          <div class="sec-head"><span class="n">5</span><div><h2>When you're free</h2></div></div>
+          <div class="days" id="daychips" class="daychips"></div>
+          <label class="f" for="s_time">Times that usually work<input type="text" id="s_time" placeholder="e.g. after 4pm weekdays, Sunday mornings"></label>
+        </div>
+
+        <div class="actions">
+          <button type="submit" class="btn primary" id="saveGoals">Save my goals</button>
+          <span class="muted small" id="savedAt" aria-live="polite"></span>
+          <span class="err" id="formErr" role="alert"></span>
+        </div>
+      </form>
+    </section>
+  </div>
+</main>
+<script src="/assets/common.js"></script>
+<script src="/assets/student.js"></script>
+</body>
+</html>
