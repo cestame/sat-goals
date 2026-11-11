@@ -104,7 +104,7 @@
     if (st && S.features.ai) box.append(h("div", { class: "actions" },
       h("button", { type: "button", class: "btn small ai", disabled: busy, text: busy ? "Writing…" : p.aiPrep ? "Redraft brief" : "Draft prep brief with AI", onclick: () => draftPrep(ev) }),
       !planOf(st).steps.length ? h("span", { class: "muted small", text: "Tip: make a course plan first for a sharper brief." }) : null));
-    if (st && !S.features.ai) box.append(h("p", { class: "muted small", text: "AI briefs are off. Add an Anthropic API key in Vercel to turn them on." }));
+    if (st && !S.features.ai) box.append(h("p", { class: "muted small", text: "Tick “Prepared” once you’re ready. Ask Claude for a prep brief any time." }));
     return box;
   }
   function sessRow(ev, opts = {}) {
@@ -229,10 +229,37 @@
     return h("div", { class: "card private" },
       h("div", { class: "head" }, h("h3", { text: "Course plan" }), h("span", { class: "lock", text: "PRIVATE" }), h("span", { style: "flex:1" }), S.features.ai ? aiBtn : null),
       msg, field("Strategy", sum),
-      p.steps.length ? h("p", { class: "muted small" }, c ? `On step ${c.i + 1} of ${p.steps.length}. Tick a step when it's done; prep briefs follow the current step.` : "Every step is done.") : h("p", { class: "muted small", text: S.features.ai ? "No steps yet. Draft one with AI from this student's profile and question log, or add steps yourself." : "No steps yet. Add steps yourself." }),
+      p.steps.length ? h("p", { class: "muted small" }, c ? `On step ${c.i + 1} of ${p.steps.length}. Tick a step when it's done; prep briefs follow the current step.` : "Every step is done.") : h("p", { class: "muted small", text: S.features.ai ? "No steps yet. Draft one with AI from this student's profile and question log, or add steps yourself." : "No steps yet. Paste a plan or add steps yourself." }),
       steps,
-      h("button", { type: "button", class: "btn small", style: "justify-self:start", text: "Add step", onclick: () => { const L = latest(); setPlan({ ...L, steps: [...L.steps, { id: newId(), title: `Week ${L.steps.length + 1}: `, focus: "", done: false }] }); } }));
+      h("div", { class: "actions" },
+      h("button", { type: "button", class: "btn small", text: "Paste a plan", onclick: () => openPastePlan(st) }),
+      h("button", { type: "button", class: "btn small", text: "Add step", onclick: () => { const L = latest(); setPlan({ ...L, steps: [...L.steps, { id: newId(), title: `Week ${L.steps.length + 1}: `, focus: "", done: false }] }); } })));
   }
+  /** Paste a plan written elsewhere (for example, drafted with Claude). */
+  function parsePlan(text) {
+    let summary = ""; const steps = [];
+    for (const raw of String(text).split("\n")) {
+      const line = raw.trim().replace(/^[-*•]\s*/, ""); if (!line) continue;
+      const sm = line.match(/^(strategy|summary|goal)\s*:\s*(.+)$/i); if (sm) { summary = sm[2].trim(); continue; }
+      const parts = line.split(/\s+\|\s+|\s+[—–]\s+/);
+      const title = parts.shift().trim(), focus = parts.join(" — ").trim();
+      if (title) steps.push({ id: newId(), title: title.slice(0, 140), focus: focus.slice(0, 500), done: false });
+    }
+    return { summary, steps };
+  }
+  function openPastePlan(st) {
+    const ta = h("textarea", { id: "pp_text", rows: "12", placeholder: "Strategy: Math first, then grammar\nWeek 1: Linear equations | Slope, systems, Desmos checks\nWeek 2: Bluebook test 2 | Full test, review misses" });
+    const L = planOf(S.students.get(st.id) || st);
+    modal(`Paste a plan for ${st.name}`, h("div", { class: "grid" },
+      h("p", { class: "muted small", text: "One step per line. Put the focus after a | or a dash. An optional first line starting with “Strategy:” becomes the summary." }),
+      L.steps.length ? h("p", { class: "callout small", text: `This replaces the ${L.steps.length} step${L.steps.length > 1 ? "s" : ""} already in the plan.` }) : null, ta), async () => {
+      const p = parsePlan(ta.value);
+      if (!p.steps.length) throw new Error("No steps found. Put one step on each line.");
+      await op({ op: "tutor", id: st.id, patch: { plan: { summary: p.summary || L.summary || "", steps: p.steps } } }, true);
+      renderAll(); toast(`Plan saved: ${p.steps.length} steps`);
+    }, "Save plan");
+  }
+
   function questionsCard(st) {
     const sel = h("select", { id: "tq_filter", "aria-label": "Show", style: "width:auto", onchange: (e) => { S.qFilter = e.target.value; renderDetail(); } },
       [["all", "All"], ["miss", "Missed or guessed"], ["student", "Logged by student"], ["tutor", "Logged by you"], ["RW", "Reading & Writing"], ["Math", "Math"]].map(([v, l]) => h("option", { value: v, text: l })));
