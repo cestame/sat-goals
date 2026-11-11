@@ -2,7 +2,7 @@
   "use strict";
   const { $, h, toast, api, logout, CATEGORIES, KIND, fmtDate, fmtDay, fmtShort, fmtTime, daysUntil, relDay, initials,
     sessionTitle, sessionSub, datebox, splitSessions, markdown, field, modal, questionForm, filterQuestions, questionFilters, questionTable,
-    skillBars, scoreChart, scoreList, openScoreModal, goalsCard, scoreTotal } = SAT;
+    skillBars, scoreChart, scoreList, openScoreModal, goalsCard, scoreTotal, homeworkCard, dueBadge } = SAT;
   let me = null;
   const qf = { result: "miss" };
   const view = () => $("#view");
@@ -13,7 +13,7 @@
   function sessionItem(s, opts = {}) {
     const rel = relDay(s.start);
     const right = [];
-    if (s.homework && s.end < Date.now()) right.push(h("span", { class: "badge " + (s.hwDone ? "good" : "accent"), text: s.hwDone ? "Homework done" : "Homework" }));
+    if (s.homework) right.push(s.hwDone ? h("span", { class: "badge good", text: "Homework done" }) : dueBadge(s.homeworkDue, false));
     if (opts.showKind !== false && s.kind) right.push(h("span", { class: "badge", text: KIND[s.kind] || "Session" }));
     return h("a", { class: "item", href: "#session/" + encodeURIComponent(s.id) },
       datebox(s.start),
@@ -37,7 +37,7 @@
       h("h2", { text: sessionTitle(next) }),
       h("div", { class: "meta" }, h("span", { text: fmtDay(next.start) }), h("span", { text: fmtTime(next.start) + (next.end ? " – " + fmtTime(next.end) : "") }),
         next.category ? h("span", { text: CATEGORIES[next.category]?.name }) : null, next.kind ? h("span", { text: KIND[next.kind] }) : null),
-      next.agenda ? h("div", { style: "background:rgb(255 255 255 / .1);border-radius:10px;padding:12px 14px" }, h("div", { class: "eyebrow", style: "margin-bottom:6px", text: "Plan" }), markdown(next.agenda)) : null,
+      next.topic && next.topic !== sessionTitle(next) ? h("div", { style: "background:rgb(255 255 255 / .1);border-radius:10px;padding:10px 14px;font-size:14.5px" }, h("span", { class: "eyebrow", style: "margin-right:8px", text: "Topic" }), next.topic) : null,
       h("div", { class: "row" }, h("a", { class: "btn", href: "#session/" + encodeURIComponent(next.id), text: "Open session" })))
       : h("section", { class: "card" }, h("div", { class: "card-b" }, h("span", { class: "eyebrow", text: "Your next session" }), h("h2", { text: "Nothing scheduled yet" }), h("p", { class: "muted", text: "Your next session will show up here as soon as it's booked." })));
 
@@ -61,9 +61,11 @@
     const qCard = h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Question practice" }), h("a", { href: "#questions", class: "btn sm", text: "Log a question" })),
       h("div", { class: "card-b" }, h("p", { class: "small muted", text: `${me.questions.length} logged · ${misses} to review` }), skillBars(me.questions, 4)));
 
+    const hwCard = homeworkCard(me.sessions, { isDone: (x) => x.hwDone, href: (x) => "#session/" + encodeURIComponent(x.id), emptyText: "No homework right now. Nice!",
+      onToggle: async (x, done) => { try { await act({ op: "homework", sessionId: x.id, done }); render(); toast(done ? "Nice work!" : "Marked not done"); } catch (e) { toast(e.message); } } });
     view().replaceChildren(
       h("div", { class: "page-head" }, h("div", { class: "grow" }, h("span", { class: "eyebrow", text: new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) }), h("h1", { text: `Welcome back, ${me.name.split(" ")[0]}` }))),
-      h("div", { class: "cols" }, h("div", { class: "stack" }, hero, upcomingCard, pastCard, qCard), h("div", { class: "stack" }, testCard, scoresCard, goals)));
+      h("div", { class: "cols" }, h("div", { class: "stack" }, hero, hwCard, upcomingCard, pastCard, qCard), h("div", { class: "stack" }, testCard, scoresCard, goals)));
   }
   function openTestModal() {
     const p = me.profile || {};
@@ -93,7 +95,7 @@
     const c = s.category ? CATEGORIES[s.category] : null;
     const hw = s.homework ? h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Homework" }),
       h("label", { class: "prep" + (s.hwDone ? " on" : ""), style: "position:relative" }, h("input", { type: "checkbox", checked: s.hwDone, onchange: async (e) => { try { await act({ op: "homework", sessionId: s.id, done: e.target.checked }); render(); toast(e.target.checked ? "Nice work!" : "Marked not done"); } catch (x) { toast(x.message); } } }), h("span", { class: "o" }), s.hwDone ? "Done" : "Mark done")),
-      h("div", { class: "card-b" }, markdown(s.homework))) : null;
+      h("div", { class: "card-b" }, markdown(s.homework), h("div", {}, dueBadge(s.homeworkDue, s.hwDone)))) : null;
     view().replaceChildren(
       h("nav", { class: "crumbs", "aria-label": "Breadcrumb" }, h("a", { href: "#sessions", text: "Sessions" }), h("span", { text: "/" }), h("span", { text: fmtShort(s.start) })),
       h("div", { class: "page-head" }, h("div", { class: "grow" },
@@ -102,14 +104,13 @@
         h("p", { class: "muted", text: `${fmtDay(s.start)} · ${fmtTime(s.start)}${s.end ? " – " + fmtTime(s.end) : ""}` }))),
       h("div", { class: "cols" },
         h("div", { class: "stack" },
-          h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Plan for this session" })), h("div", { class: "card-b" }, s.agenda ? markdown(s.agenda) : h("p", { class: "muted", text: past ? "No plan was added for this session." : "Your tutor hasn't added the plan yet." }))),
           h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Session notes" })), h("div", { class: "card-b" }, s.notes ? markdown(s.notes) : h("p", { class: "muted", text: past ? "Notes will appear here once your tutor adds them." : "Notes from the session will appear here afterward." }))),
           hw,
           h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Questions from this session" }), h("button", { type: "button", class: "btn sm", text: "Log a question", onclick: () => openQuestionModal(s.id) })),
             h("div", { class: "card-b tight" }, questionTable(qs, { empty: "No questions logged for this session yet.", sessions: me.sessions, canDelete: (q) => q.by === "student", onDelete: delQ })))),
         h("div", { class: "stack" },
           h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Focus" })), h("div", { class: "card-b" },
-            h("dl", { class: "kv" }, h("dt", { text: "Type" }), h("dd", { text: KIND[s.kind] || "Session" }),
+            h("dl", { class: "kv" }, h("dt", { text: "Topic" }), h("dd", { text: s.topic || s.skill || "To be decided" }), h("dt", { text: "Type" }), h("dd", { text: KIND[s.kind] || "Session" }),
               h("dt", { text: "Category" }), h("dd", { text: c ? c.name : "—" }), h("dt", { text: "Skill" }), h("dd", { text: s.skill || "—" }),
               s.practiceScore ? h("dt", { text: "Practice score" }) : null, s.practiceScore ? h("dd", { class: "mono", text: s.practiceScore }) : null))))));
   }

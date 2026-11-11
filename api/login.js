@@ -37,9 +37,9 @@ export default handler(async (req, res) => {
     setSession(res, { r: "s", id: found[0].id, n: found[0].name }, 60);
     return ok(res, { role: "student", name: found[0].name });
   }
-  if (found.length > 1) return fail(res, 409, "More than one student has that first name. Add your last initial, like “Riley Z.”");
+  if (found.length > 1) return fail(res, 409, "More than one student has that first name. Add your last initial, like “Amy W.”");
   if (!body.create) return ok(res, { notFound: true });
-  if (name.split(/\s+/).length < 2) return fail(res, 400, "Add your last name or last initial, like “Jordan P.”");
+  if (name.split(/\s+/).length < 2) return fail(res, 400, "Add your last name or last initial, like “Amy W.”");
   const id = newId();
   await writeJSON(P.student(id), blankStudent(name));
   await writeJSON(P.tutor(id), { ...blankTutor(name), status: "New" });

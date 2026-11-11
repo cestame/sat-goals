@@ -66,7 +66,7 @@ window.SAT = (() => {
   const initials = (n) => String(n || "?").split(/\s+/).map((x) => x[0]).join("").slice(0, 2).toUpperCase();
 
   /* ---------- sessions ---------- */
-  const sessionTitle = (s) => s.title || (s.kind === "skill" && s.skill ? s.skill : KIND[s.kind] || "Session");
+  const sessionTitle = (s) => s.title || s.topic || (s.kind === "skill" && s.skill ? s.skill : KIND[s.kind] || "Session");
   const sessionSub = (s) => [fmtTime(s.start) + (s.end ? "–" + fmtTime(s.end) : ""), s.category ? CATEGORIES[s.category]?.name : null].filter(Boolean).join(" · ");
   function datebox(ts) {
     const d = new Date(ts);
@@ -264,6 +264,57 @@ window.SAT = (() => {
     }, "Add score");
   }
 
+  /* ---------- homework ---------- */
+  function dueBadge(due, done) {
+    if (done) return h("span", { class: "badge good", text: "Done" });
+    if (!due) return h("span", { class: "badge", text: "No due date" });
+    const d = daysUntil(due);
+    if (d < 0) return h("span", { class: "badge bad", text: `Overdue · ${fmtDate(due).replace(/, \d{4}$/, "")}` });
+    if (d === 0) return h("span", { class: "badge accent", text: "Due today" });
+    if (d === 1) return h("span", { class: "badge accent", text: "Due tomorrow" });
+    return h("span", { class: "badge", text: "Due " + new Date(due + "T00:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) });
+  }
+  /** Homework from sessions: open items first (soonest due), then the most recent finished ones. */
+  function homeworkItems(sessions, isDone) {
+    const items = sessions.filter((s) => s.homework && !s.cancelled).map((s) => ({ s, done: !!isDone(s), due: s.homeworkDue || "" }));
+    const open = items.filter((x) => !x.done).sort((a, b) => (a.due || "9999") < (b.due || "9999") ? -1 : (a.due || "9999") > (b.due || "9999") ? 1 : b.s.start - a.s.start);
+    const done = items.filter((x) => x.done).sort((a, b) => b.s.start - a.s.start);
+    return { open, done };
+  }
+  function homeworkCard(sessions, { isDone, onToggle, href, title = "Homework", emptyText = "No homework right now.", doneLimit = 3 }) {
+    const { open, done } = homeworkItems(sessions, isDone);
+    const row = ({ s, done: isD, due }) => h("div", { class: "goal" + (isD ? " done" : ""), style: "align-items:flex-start" },
+      onToggle ? h("input", { type: "checkbox", checked: isD, "aria-label": `Homework done: ${s.homework.slice(0, 60)}`, onchange: (e) => onToggle(s, e.target.checked) }) : null,
+      h("div", { class: "t", style: "display:grid;gap:4px" },
+        h("div", { style: "white-space:pre-wrap", text: s.homework }),
+        h("div", { class: "row", style: "gap:8px" }, dueBadge(due, isD), h("a", { class: "xs", href: href(s), text: "From " + fmtShort(s.start) }))));
+    const overdue = open.filter((x) => x.due && daysUntil(x.due) < 0).length;
+    return h("div", { class: "card" },
+      h("div", { class: "card-h" }, h("h3", { text: title }), overdue ? h("span", { class: "badge bad", text: `${overdue} overdue` }) : open.length ? h("span", { class: "xs muted", text: `${open.length} to do` }) : null),
+      h("div", { class: "card-b" },
+        open.length ? h("div", {}, open.map(row)) : h("p", { class: "muted small", text: emptyText }),
+        done.length ? h("details", {}, h("summary", { class: "small muted", text: `Finished (${done.length})` }), h("div", { style: "margin-top:6px" }, done.slice(0, doneLimit * 5).map(row))) : null));
+  }
+
+  /* ---------- save buttons ---------- */
+  /** Tracks unsaved edits across the page so nothing is lost by navigating away. */
+  const dirty = new Set();
+  window.addEventListener("beforeunload", (e) => { if (dirty.size) { e.preventDefault(); e.returnValue = ""; } });
+  function saver(key, inputs, onSave, { label = "Save", after } = {}) {
+    const btn = h("button", { type: "button", class: "btn primary sm", text: label, disabled: true });
+    const status = h("span", { class: "xs muted", "aria-live": "polite" });
+    const mark = () => { dirty.add(key); btn.disabled = false; status.textContent = "Unsaved changes"; status.style.color = "var(--warn)"; };
+    inputs.forEach((el) => { el.addEventListener("input", mark); el.addEventListener("change", mark); });
+    btn.addEventListener("click", async () => {
+      btn.disabled = true; status.style.color = ""; status.textContent = "Saving…";
+      try { await onSave(); dirty.delete(key); status.textContent = "Saved"; if (after) after(); }
+      catch (e) { btn.disabled = false; status.textContent = ""; toast(e.message); }
+    });
+    return { btn, status, mark, bar: h("div", { class: "row", style: "justify-content:flex-end;gap:10px" }, status, btn) };
+  }
+  const hasUnsaved = () => dirty.size > 0;
+  const clearUnsaved = () => dirty.clear();
+
   /* ---------- goals ---------- */
   function goalsCard(goals, onSave, opts = {}) {
     const list = h("div", {});
@@ -284,5 +335,5 @@ window.SAT = (() => {
 
   return { $, h, toast, api, logout, CATEGORIES, SECTION, KIND, RESULT, catOf, ymd, today, fmtDate, fmtDay, fmtShort, fmtTime, daysUntil, relDay, isToday, ago, initials,
     sessionTitle, sessionSub, datebox, splitSessions, markdown, field, categorySelect, skillSelect, modal,
-    questionForm, filterQuestions, questionFilters, questionTable, skillStats, skillBars, scoreTotal, scoreChart, scoreList, openScoreModal, goalsCard };
+    questionForm, filterQuestions, questionFilters, questionTable, skillStats, skillBars, scoreTotal, scoreChart, scoreList, openScoreModal, goalsCard, dueBadge, homeworkItems, homeworkCard, saver, hasUnsaved, clearUnsaved };
 })();

@@ -247,7 +247,7 @@ export function mergeSessions(person, events) {
   return out.sort((a, b) => a.start - b.start);
 }
 export function studentSafeSession(s, hw) {
-  const { privateNote, prepared, ...rest } = s;
+  const { privateNote, prepared, agenda, ...rest } = s;   // the session plan is the tutor's own
   return { ...rest, hwDone: !!(hw && hw[s.id]) };
 }
 
@@ -309,8 +309,10 @@ export function cleanSessionPatch(p = {}) {
   if ("category" in p) { out.category = cat(p.category); out.skill = skillOf(out.category, p.skill); }
   if ("title" in p) out.title = str(p.title, 120);
   if ("agenda" in p) out.agenda = str(p.agenda, 6000);
+  if ("topic" in p) out.topic = str(p.topic, 140).trim();
   if ("notes" in p) out.notes = str(p.notes, 20000);
   if ("homework" in p) out.homework = str(p.homework, 2000);
+  if ("homeworkDue" in p) out.homeworkDue = date(p.homeworkDue);
   if ("privateNote" in p) out.privateNote = str(p.privateNote, 4000);
   if ("prepared" in p) out.prepared = !!p.prepared;
   if ("cancelled" in p) out.cancelled = !!p.cancelled;

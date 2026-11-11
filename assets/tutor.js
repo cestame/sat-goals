@@ -2,7 +2,7 @@
   "use strict";
   const { $, h, toast, api, logout, CATEGORIES, KIND, ymd, today, fmtDate, fmtDay, fmtShort, fmtTime, daysUntil, relDay, ago, initials,
     sessionTitle, sessionSub, datebox, splitSessions, markdown, field, categorySelect, skillSelect, modal,
-    questionForm, filterQuestions, questionFilters, questionTable, skillStats, skillBars, scoreTotal, scoreChart, scoreList, openScoreModal, goalsCard } = SAT;
+    questionForm, filterQuestions, questionFilters, questionTable, skillStats, skillBars, scoreTotal, scoreChart, scoreList, openScoreModal, goalsCard, homeworkCard, dueBadge, saver, hasUnsaved, clearUnsaved } = SAT;
   const STATUSES = ["Active", "New", "Paused", "Done"];
   const S = { students: new Map(), cal: {}, unmatched: [], loaded: false, qf: { result: "miss" } };
   const view = () => $("#view");
@@ -139,6 +139,7 @@
       h("div", { class: "stack" },
         h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Upcoming sessions" }), h("button", { type: "button", class: "btn sm", text: "Add session", onclick: () => openAddSession(st) })),
           h("div", { class: "list" }, upcoming.length ? upcoming.slice(0, 4).map((s) => sessionRow(st, s)) : [h("div", { class: "empty", text: `Nothing scheduled. Title an event “SAT - ${st.name}” on your Tutoring calendar, or add a session here.` })])),
+        homeworkCard(st.sessions || [], { isDone: (s) => st.hw && st.hw[s.id], href: (s) => `#session/${id}/${encodeURIComponent(s.id)}`, emptyText: "No homework assigned. Add it on a session page.", title: "Homework" }),
         sug ? h("div", { class: "callout" }, h("strong", { text: "Suggested next skill: " }), `${sug.skill} (${CATEGORIES[sug.cat].name}), ${sug.right}/${sug.n} right so far.`) : null,
         h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Previous sessions" }), h("a", { class: "small", href: `#student/${id}/sessions`, text: "All sessions" })),
           h("div", { class: "list" }, past.length ? past.slice(0, 5).map((s) => sessionRow(st, s)) : [h("div", { class: "empty", text: "No past sessions yet." })])),
@@ -177,8 +178,7 @@
     const setPlan = (np) => safe(op({ op: "tutor", id, patch: { plan: np } })).then(render);
     const latestPlan = () => { const s = S.students.get(id); return s.plan && s.plan.steps ? s.plan : { summary: "", steps: [] }; };
     const notes = h("textarea", { id: "pn_notes", rows: "8", value: st.notes || "", placeholder: "Anything you want to remember: learning style, parent notes, what's working…" });
-    const saved = h("span", { class: "xs muted", "aria-live": "polite" });
-    notes.addEventListener("change", async () => { saved.textContent = "Saving…"; try { await op({ op: "tutor", id, patch: { notes: notes.value } }); saved.textContent = "Saved"; } catch (e) { saved.textContent = e.message; } });
+    const sv = saver("notes:" + id, [notes], () => op({ op: "tutor", id, patch: { notes: notes.value } }));
     return h("div", { class: "cols" },
       h("div", { class: "card private" }, h("div", { class: "card-h" }, h("h3", { text: "Course plan" }), h("button", { type: "button", class: "btn sm", text: "Paste a plan", onclick: () => openPastePlan(st) })),
         h("div", { class: "card-b" },
@@ -193,7 +193,7 @@
           })) : h("p", { class: "muted", text: "No plan yet. Paste one (I can write it with you in Claude), or add steps one at a time." }),
           h("form", { class: "row", onsubmit: (e) => { e.preventDefault(); const t = e.target.querySelector("input"); if (!t.value.trim()) return; const L = latestPlan(); setPlan({ ...L, steps: [...L.steps, { title: t.value.trim(), focus: "", done: false }] }); } },
             h("input", { type: "text", id: "pl_new", placeholder: "Add a step, e.g. Week 3: Boundaries", "aria-label": "New plan step", class: "grow", style: "flex:1" }), h("button", { type: "submit", class: "btn", text: "Add" })))),
-      h("div", { class: "card private" }, h("div", { class: "card-h" }, h("h3", { text: "Private notes" }), saved), h("div", { class: "card-b" }, notes, h("p", { class: "xs muted", text: "Saves when you click outside the box." }))));
+      h("div", { class: "card private" }, h("div", { class: "card-h" }, h("h3", { text: "Private notes" })), h("div", { class: "card-b" }, notes, sv.bar)));
   }
   function openPastePlan(st) {
     const ta = h("textarea", { id: "pp_text", rows: "12", class: "code", placeholder: "Strategy: Math first, then grammar\nWeek 1: Linear equations | slope, systems, Desmos checks\nWeek 2: Bluebook test 2 | full test, review misses" });
@@ -249,53 +249,64 @@
     const st = S.students.get(studentId), s = st && st.sessions.find((x) => x.id === sessionId);
     if (!s) { view().replaceChildren(h("div", { class: "card" }, h("div", { class: "card-b" }, h("h2", { text: "Session not found" }), h("a", { href: "#home", text: "Back to overview" })))); return; }
     const past = (s.end || s.start) < Date.now();
-    const status = h("span", { class: "xs muted", "aria-live": "polite" });
-    const save = async (patch, quiet) => {
-      status.textContent = "Saving…";
-      try { await op({ op: "session", id: studentId, sessionId, patch }); status.textContent = "All changes saved"; if (!quiet) renderSessionKeep(); }
-      catch (e) { status.textContent = ""; toast(e.message); }
-    };
-    const area = (key, rows, ph, cls) => { const t = h("textarea", { id: "se_" + key, rows: String(rows), value: s[key] || "", placeholder: ph, class: cls || null }); t.addEventListener("change", () => save({ [key]: t.value }, true)); return t; };
+    const save = (patch) => op({ op: "session", id: studentId, sessionId, patch });
+    const refreshIfClean = () => { if (!hasUnsaved()) renderSessionKeep(); };
+    const area = (key, rows, ph, cls) => h("textarea", { id: "se_" + key, rows: String(rows), value: s[key] || "", placeholder: ph, class: cls || null });
     const preview = (t) => { const box = h("div", { hidden: true }); const btn = h("button", { type: "button", class: "btn ghost sm", text: "Preview", onclick: () => { const on = box.hidden; box.hidden = !on; t.hidden = on; btn.textContent = on ? "Edit" : "Preview"; if (on) box.replaceChildren(t.value.trim() ? markdown(t.value) : h("p", { class: "muted", text: "Nothing yet." })); } }); return { box, btn }; };
-    const agenda = area("agenda", 7, "What you'll cover, in order. Students see this.\n- Warm-up: 5 boundary questions\n- Teach: semicolons vs. commas\n- Practice: 10 mixed questions");
+
+    const agenda = area("agenda", 7, "What you'll cover, in order. Only you see this.\n- Warm-up: 5 boundary questions\n- Teach: semicolons vs. commas\n- Practice: 10 mixed questions");
     const notes = area("notes", 12, "Paste your Granola notes here after the session. Students see these.", "code");
     const hw = area("homework", 3, "e.g. 15 Boundaries questions in the question bank, Medium and Hard");
+    const due = h("input", { type: "date", id: "se_due", value: s.homeworkDue || "" });
     const priv = area("privateNote", 3, "Only you see this.");
     const pa = preview(agenda), pn = preview(notes);
+    const svAgenda = saver("agenda", [agenda], () => save({ agenda: agenda.value }), { after: refreshIfClean });
+    const svNotes = saver("notes", [notes], () => save({ notes: notes.value }), { after: refreshIfClean });
+    const svHw = saver("hw", [hw, due], () => save({ homework: hw.value, homeworkDue: due.value }), { after: refreshIfClean });
+    const svPriv = saver("priv", [priv], () => save({ privateNote: priv.value }));
+
     const kind = h("select", { id: "se_kind" }, Object.entries(KIND).map(([k, l]) => h("option", { value: k, text: l }))); kind.value = s.kind || "skill";
     const cat = categorySelect("se_cat", s.category || "");
     const skill = skillSelect("se_skill", s.category || "", s.skill || "");
+    const title = h("input", { type: "text", id: "se_title", value: s.title || "", placeholder: "e.g. Session 4: Boundaries" });
+    const topic = h("input", { type: "text", id: "se_topic", value: s.topic || "", placeholder: "e.g. Semicolons and commas" });
     const score = h("input", { type: "number", id: "se_score", min: "400", max: "1600", step: "10", value: s.practiceScore ?? "", placeholder: "optional" });
-    const saveFocus = () => save({ kind: kind.value, category: cat.value, skill: skill.value });
-    kind.addEventListener("change", saveFocus); cat.addEventListener("change", () => { skill.refill(cat.value, ""); saveFocus(); }); skill.addEventListener("change", saveFocus);
-    score.addEventListener("change", () => save({ practiceScore: score.value }, true));
+    cat.addEventListener("change", () => skill.refill(cat.value, ""));
+    const svFocus = saver("focus", [title, topic, kind, cat, skill, score], () => {
+      if (score.value && !(Number(score.value) >= 400 && Number(score.value) <= 1600)) throw new Error("Practice score should be between 400 and 1600.");
+      return save({ title: title.value, topic: topic.value, kind: kind.value, category: cat.value, skill: skill.value, practiceScore: score.value });
+    }, { after: refreshIfClean });
     const sug = suggestSkill(st);
     const qs = st.allQuestions.filter((q) => q.sessionId === s.id);
+    const hwDone = st.hw && st.hw[s.id];
+
     view().replaceChildren(
       h("nav", { class: "crumbs", "aria-label": "Breadcrumb" }, h("a", { href: `#student/${st.id}`, text: st.name }), h("span", { text: "/" }), h("a", { href: `#student/${st.id}/sessions`, text: "Sessions" }), h("span", { text: "/" }), h("span", { text: fmtShort(s.start) })),
       h("div", { class: "page-head" }, h("div", { class: "grow" },
         h("div", { class: "row", style: "gap:8px" }, h("span", { class: "badge brand", text: KIND[s.kind] || "Session" }), s.calendar ? h("span", { class: "badge", text: "From calendar" }) : h("span", { class: "badge", text: "Added by you" }), s.cancelled ? h("span", { class: "badge bad", text: "Cancelled" }) : null),
         h("h1", { text: sessionTitle(s) }), h("p", { class: "muted", text: `${st.name} · ${fmtDay(s.start)} · ${fmtTime(s.start)}${s.end ? " – " + fmtTime(s.end) : ""}` })),
-        status, past ? null : prepToggle(st, s, renderSessionKeep)),
+        past ? null : prepToggle(st, s, () => { if (!hasUnsaved()) renderSessionKeep(); })),
       h("div", { class: "cols" },
         h("div", { class: "stack" },
-          h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Session plan" }), pa.btn), h("div", { class: "card-b" }, agenda, pa.box, h("p", { class: "xs muted", text: "Shown to the student. Saves when you click outside the box." }))),
-          h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Session notes" }), h("span", { class: "xs muted", text: "Granola" }), pn.btn), h("div", { class: "card-b" }, notes, pn.box, h("p", { class: "xs muted", text: "Paste from Granola. Headings and bullet points keep their formatting. Shown to the student." }))),
-          h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Homework" }), s.homework ? h("span", { class: "badge " + (st.hw && st.hw[s.id] ? "good" : "accent"), text: st.hw && st.hw[s.id] ? "Student marked done" : "Not done yet" }) : null), h("div", { class: "card-b" }, hw)),
+          h("div", { class: "card private" }, h("div", { class: "card-h" }, h("h3", { text: "Session plan" }), pa.btn), h("div", { class: "card-b" }, agenda, pa.box, h("div", { class: "row" }, h("span", { class: "xs muted grow", text: "Private. Students only see the planned topic." }), svAgenda.status, svAgenda.btn))),
+          h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Session notes" }), h("span", { class: "xs muted", text: "Granola" }), pn.btn), h("div", { class: "card-b" }, notes, pn.box, h("div", { class: "row" }, h("span", { class: "xs muted grow", text: "Paste from Granola. Headings and bullet points keep their formatting. Shown to the student." }), svNotes.status, svNotes.btn))),
+          h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Homework" }), s.homework ? dueBadge(s.homeworkDue, hwDone) : null),
+            h("div", { class: "card-b" }, hw, h("div", { class: "row", style: "align-items:flex-end" }, h("div", { style: "width:200px" }, field("Due date", due)), h("span", { class: "grow" }), svHw.status, svHw.btn),
+              s.homework ? h("p", { class: "xs muted", text: hwDone ? "The student marked this done." : "Not marked done yet." }) : null)),
           h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Questions from this session" }), h("span", { class: "xs muted", text: `${qs.length}` })),
-            h("div", { class: "card-b tight" }, questionTable(qs, { empty: "No questions logged for this session yet.", sessions: st.sessions, showBy: true, canDelete: () => true, onDelete: (q) => safe(op({ op: "deleteQuestion", id: st.id, qid: q.id })).then(renderSessionKeep) })),
+            h("div", { class: "card-b tight" }, questionTable(qs, { empty: "No questions logged for this session yet.", sessions: st.sessions, showBy: true, canDelete: () => true, onDelete: (q) => safe(op({ op: "deleteQuestion", id: st.id, qid: q.id })).then(refreshIfClean) })),
             h("details", {}, h("summary", { class: "card-h", style: "border-top:1px solid var(--line-2)" }, h("span", { class: "linkbtn", text: "+ Log a question from this session" })),
-              h("div", { class: "card-b" }, questionForm("sq", async (q) => { await op({ op: "addQuestion", id: st.id, question: q }); renderSessionKeep(); }, { sessionId: s.id }))))),
+              h("div", { class: "card-b" }, questionForm("sq", async (q) => { await op({ op: "addQuestion", id: st.id, question: q }); refreshIfClean(); }, { sessionId: s.id }))))),
         h("div", { class: "stack" },
-          h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Focus" })), h("div", { class: "card-b" },
-            field("Type", kind), field("Category", cat), field("Skill", skill),
-            sug && !s.skill ? h("button", { type: "button", class: "callout", style: "text-align:left;cursor:pointer;font:inherit;color:inherit", onclick: () => { cat.value = sug.cat; skill.refill(sug.cat, sug.skill); saveFocus(); } },
+          h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Name and focus" })), h("div", { class: "card-b" },
+            field("Session name", title, "students see this"), field("Planned topic", topic, "students see this"), field("Type", kind), field("Category", cat), field("Skill", skill),
+            sug && !s.skill ? h("button", { type: "button", class: "callout", style: "text-align:left;cursor:pointer;font:inherit;color:inherit", onclick: () => { cat.value = sug.cat; skill.refill(sug.cat, sug.skill); svFocus.mark(); } },
               h("strong", { text: "Use weakest skill: " }), `${sug.skill} (${sug.right}/${sug.n} right)`) : null,
-            field("Practice test score", score, "if they took one"))),
-          h("div", { class: "card private" }, h("div", { class: "card-h" }, h("h3", { text: "Private note" })), h("div", { class: "card-b" }, priv)),
+            field("Practice test score", score, "if they took one"), svFocus.bar)),
+          h("div", { class: "card private" }, h("div", { class: "card-h" }, h("h3", { text: "Private note" })), h("div", { class: "card-b" }, priv, svPriv.bar)),
           h("div", { class: "card" }, h("div", { class: "card-b row" },
-            h("button", { type: "button", class: "btn sm", text: s.cancelled ? "Mark as happening" : "Mark cancelled", onclick: () => save({ cancelled: !s.cancelled }) }),
-            !s.calendar ? h("button", { type: "button", class: "btn sm danger", text: "Delete session", onclick: async () => { await safe(op({ op: "deleteSession", id: st.id, sessionId: s.id })); location.hash = `student/${st.id}/sessions`; } }) : null)))));
+            h("button", { type: "button", class: "btn sm", text: s.cancelled ? "Mark as happening" : "Mark cancelled", onclick: () => safe(save({ cancelled: !s.cancelled })).then(refreshIfClean) }),
+            !s.calendar ? h("button", { type: "button", class: "btn sm danger", text: "Delete session", onclick: async () => { if (!confirm("Delete this session and its notes?")) return; await safe(op({ op: "deleteSession", id: st.id, sessionId: s.id })); clearUnsaved(); location.hash = `student/${st.id}/sessions`; } }) : null)))));
   }
   function renderSessionKeep() { const y = window.scrollY; render(); window.scrollTo(0, y); }
 
@@ -308,15 +319,19 @@
     else if (parts[0] === "session") renderSession(parts[1], decodeURIComponent(parts.slice(2).join("/")));
     else renderHome();
   }
+  let lastHash = location.hash, reverting = false;
   window.addEventListener("hashchange", async () => {
+    if (reverting) { reverting = false; return; }
+    if (hasUnsaved() && !confirm("You have unsaved changes. Leave this page without saving them?")) { reverting = true; location.hash = lastHash; return; }
+    clearUnsaved(); lastHash = location.hash;
     render(); window.scrollTo(0, 0);
-    if (Date.now() - (S.at || 0) > 20000) { try { await load(false); if (!$("#modalRoot").childElementCount && !document.activeElement?.matches("input,textarea,select")) render(); } catch {} }
+    if (Date.now() - (S.at || 0) > 20000) { try { await load(false); if (!hasUnsaved() && !$("#modalRoot").childElementCount && !document.activeElement?.matches("input,textarea,select")) render(); } catch {} }
   });
   $("#navHome").onclick = () => (location.hash = "home");
   $("#q").addEventListener("input", renderRoster);
-  $("#logout").onclick = logout;
+  $("#logout").onclick = () => { if (hasUnsaved() && !confirm("You have unsaved changes. Log out anyway?")) return; clearUnsaved(); logout(); };
   $("#addBtn").onclick = () => {
-    const name = h("input", { type: "text", id: "n_name", placeholder: "e.g. Jordan P." });
+    const name = h("input", { type: "text", id: "n_name", placeholder: "e.g. Amy W." });
     const cal = h("input", { type: "text", id: "n_cal", placeholder: "Same as name" });
     modal("Add student", h("div", { class: "grid2", style: "grid-template-columns:1fr" }, field("Name", name), field("Calendar name", cal, "as written after “SAT - ”")), async () => {
       if (!name.value.trim()) throw new Error("Add a name.");
@@ -328,7 +343,7 @@
     try { await load(false); } catch (e) { view().replaceChildren(h("div", { class: "loading", text: e.message })); return; }
     render();
     setInterval(async () => {
-      if (document.hidden || $("#modalRoot").childElementCount || document.activeElement?.matches("input,textarea,select")) return;
+      if (document.hidden || hasUnsaved() || $("#modalRoot").childElementCount || document.activeElement?.matches("input,textarea,select")) return;
       try { await load(false); const y = window.scrollY; render(); window.scrollTo(0, y); } catch {}
     }, 3 * 60 * 1000);
   })();
