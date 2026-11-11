@@ -23,10 +23,5 @@
         }
       ]
     }
-  ],
-  "functions": {
-    "api/ai.js": {
-      "maxDuration": 120
-    }
-  }
+  ]
 }

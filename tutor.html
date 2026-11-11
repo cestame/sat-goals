@@ -3,42 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SAT Tutoring Hub</title>
+<title>SAT Tutoring · Tutor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body>
-<header class="top">
-  <div class="brand"><span class="dot" aria-hidden="true"></span><span>SAT Tutoring Hub</span></div>
-  <nav class="links"><span class="who-chip" id="who"></span><button type="button" class="linkbtn" id="logout">Log out</button></nav>
+<header class="appbar">
+  <a class="brand" href="#home"><span class="brand-mark"><i></i></span><span>SAT Tutoring</span></a>
+  <div class="right"><span class="who small muted" id="who"></span><span class="avatar" id="av" aria-hidden="true"></span><button type="button" class="btn sm" id="logout">Log out</button></div>
 </header>
-<main>
-  <div id="app">
-    <div class="tiles" id="tiles" style="margin-bottom:20px"></div>
-    <section class="card" id="upcoming" aria-labelledby="upH" style="margin-bottom:20px">
-      <div class="head"><h2 id="upH">Upcoming sessions</h2><span class="sp"></span><span class="sync" id="syncLine"></span><button type="button" class="btn small" id="syncBtn">Sync now</button></div>
-      <div id="upBody" class="days"></div>
-    </section>
-    <section class="grid" aria-label="Students">
-      <div class="toolbar">
-        <h2>Students</h2>
-        <input type="search" id="q" placeholder="Search students" aria-label="Search students">
-        <select id="statusFilter" aria-label="Filter by status">
-          <option value="open">Active and new</option><option value="all">All statuses</option>
-          <option>New</option><option>Active</option><option>Paused</option><option>Done</option>
-        </select>
-        <span class="sp"></span>
-        <button class="btn primary" id="addBtn" type="button">Add student</button>
-      </div>
-      <div class="board">
-        <div class="list" id="list" role="listbox" aria-label="Students"></div>
-        <div class="detail" id="detail"></div>
-      </div>
-    </section>
-  </div>
-</main>
+<div class="shell">
+  <aside class="side" aria-label="Students">
+    <button type="button" class="navlink" data-nav="home" id="navHome"><span class="avatar" aria-hidden="true">⌂</span><span class="n">Overview</span></button>
+    <div class="row" style="gap:6px"><input type="search" id="q" placeholder="Find a student" aria-label="Find a student" class="grow" style="flex:1"><button type="button" class="btn sm icon" id="addBtn" aria-label="Add student" title="Add student">+</button></div>
+    <div class="sec">Students</div>
+    <div id="roster" style="display:grid;gap:2px"></div>
+  </aside>
+  <main class="main"><div class="container" id="view"><div class="loading">Loading…</div></div></main>
+</div>
 <div id="modalRoot"></div>
 <script src="/assets/common.js"></script>
 <script src="/assets/tutor.js"></script>

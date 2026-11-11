@@ -1,36 +1,32 @@
-// Everything a logged-in student can do. The student id comes only from their signed cookie.
-import { handler, readBody, ok, fail, requireStudent, readJSON, updateJSON, P, cleanProfile, cleanQuestion, str } from "./_lib/core.js";
+// Everything a logged-in student can do. Their id comes only from the signed cookie.
+import { handler, readBody, ok, fail, requireStudent, loadStudent, updateJSON, P, cleanProfile, cleanQuestion, cleanScore,
+  calendarEvents, mergeSessions, studentSafeSession, str, upgradeStudent } from "./_lib/core.js";
 
-const publicView = (id, s, t) => ({
-  id, name: s.name, profile: s.profile || {},
-  questions: [...(s.questions || []), ...((t && t.questions) || [])].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.at - a.at)),
-});
+async function view(id) {
+  const p = await loadStudent(id, true); if (!p) return null;
+  const cal = await calendarEvents(false);
+  const s = p.student, t = p.tutor;
+  const sessions = mergeSessions(p, cal.events).filter((x) => !x.cancelled).map((x) => studentSafeSession(x, s.hw));
+  const plan = t.plan && t.plan.steps && t.plan.steps.length ? t.plan : null;
+  return { id, name: s.name, profile: s.profile, scores: s.scores, sessions, plan,
+    questions: [...s.questions, ...(t.questions || [])].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.at - a.at)) };
+}
 
 export default handler(async (req, res) => {
   const sess = requireStudent(req, res); if (!sess) return;
   const id = sess.id;
-  if (req.method === "GET") {
-    const [{ data: s }, { data: t }] = await Promise.all([readJSON(P.student(id)), readJSON(P.tutor(id))]);
-    if (!s) return fail(res, 401, "We couldn't find your profile. Log in again.");
-    return ok(res, publicView(id, s, t));
-  }
+  if (req.method === "GET") { const v = await view(id); return v ? ok(res, v) : fail(res, 401, "We couldn't find your profile. Log in again."); }
   if (req.method !== "POST") return fail(res, 405, "Use POST");
-  const body = await readBody(req);
-  const exists = (await readJSON(P.student(id))).data; if (!exists) return fail(res, 401, "Log in again.");
-  let next;
-  switch (body.op) {
-    case "profile":
-      next = await updateJSON(P.student(id), null, (s) => { s.profile = cleanProfile(body.profile); return s; }); break;
-    case "addQuestion": {
-      const q = cleanQuestion(body.question, "student");
-      next = await updateJSON(P.student(id), null, (s) => { s.questions = [...(s.questions || []), q].slice(-3000); return s; }); break;
-    }
-    case "deleteQuestion": {
-      const qid = str(body.id, 40);
-      next = await updateJSON(P.student(id), null, (s) => { s.questions = (s.questions || []).filter((q) => q.id !== qid); return s; }); break;
-    }
+  const b = await readBody(req);
+  const change = (fn) => updateJSON(P.student(id), null, (s) => (s ? fn(upgradeStudent(s)) : undefined));
+  switch (b.op) {
+    case "profile": await change((s) => { s.profile = cleanProfile(b.profile || {}, s.profile); return s; }); break;
+    case "addScore": { const sc = cleanScore(b.score); await change((s) => { s.scores = [...s.scores, { ...sc, by: "student" }].slice(-100); return s; }); break; }
+    case "deleteScore": await change((s) => { s.scores = s.scores.filter((x) => x.id !== str(b.scoreId, 40)); return s; }); break;
+    case "addQuestion": { const q = cleanQuestion(b.question, "student"); await change((s) => { s.questions = [...s.questions, q].slice(-3000); return s; }); break; }
+    case "deleteQuestion": await change((s) => { s.questions = s.questions.filter((q) => q.id !== str(b.qid, 40)); return s; }); break;
+    case "homework": await change((s) => { s.hw = { ...s.hw, [str(b.sessionId, 200)]: !!b.done }; return s; }); break;
     default: return fail(res, 400, "Unknown action");
   }
-  const { data: t } = await readJSON(P.tutor(id));
-  return ok(res, publicView(id, next, t));
+  return ok(res, await view(id));
 });

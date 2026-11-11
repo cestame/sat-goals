@@ -1,92 +1,157 @@
 (() => {
   "use strict";
-  const { $, h, toast, api, DOMAINS, daysUntil, questionForm, accuracy, questionTable, logout } = SAT;
-  const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const { $, h, toast, api, logout, CATEGORIES, KIND, fmtDate, fmtDay, fmtShort, fmtTime, daysUntil, relDay, initials,
+    sessionTitle, sessionSub, datebox, splitSessions, markdown, field, modal, questionForm, filterQuestions, questionFilters, questionTable,
+    skillBars, scoreChart, scoreList, openScoreModal, goalsCard, scoreTotal } = SAT;
   let me = null;
+  const qf = { result: "miss" };
+  const view = () => $("#view");
 
-  /* tabs */
-  function show(tab) {
-    const q = tab === "q";
-    $("#tabQ").setAttribute("aria-selected", String(q)); $("#tabG").setAttribute("aria-selected", String(!q));
-    $("#pQ").hidden = !q; $("#pG").hidden = q;
-    history.replaceState(null, "", q ? "#questions" : "#goals");
+  async function act(body) { me = await api("/api/student", { body }); return me; }
+
+  /* ---------- shared bits ---------- */
+  function sessionItem(s, opts = {}) {
+    const rel = relDay(s.start);
+    const right = [];
+    if (s.homework && s.end < Date.now()) right.push(h("span", { class: "badge " + (s.hwDone ? "good" : "accent"), text: s.hwDone ? "Homework done" : "Homework" }));
+    if (opts.showKind !== false && s.kind) right.push(h("span", { class: "badge", text: KIND[s.kind] || "Session" }));
+    return h("a", { class: "item", href: "#session/" + encodeURIComponent(s.id) },
+      datebox(s.start),
+      h("span", { class: "title", text: sessionTitle(s) }),
+      h("span", { class: "row", style: "gap:6px;justify-content:flex-end;grid-row:span 2" }, right),
+      h("span", { class: "sub", text: (rel ? rel + " · " : "") + sessionSub(s) }));
   }
-  $("#tabQ").onclick = () => show("q"); $("#tabG").onclick = () => show("g");
-  $("#logout").onclick = logout;
+  function emptyCard(text) { return h("div", { class: "empty", text }); }
 
-  /* questions */
-  $("#qForm").append(questionForm("sq", async (q) => { me = await api("/api/student", { body: { op: "addQuestion", question: q } }); renderQuestions(); }));
-  $("#qFilter").addEventListener("change", renderQuestions);
+  /* ---------- dashboard ---------- */
+  function renderHome() {
+    const { upcoming, past } = splitSessions(me.sessions);
+    const next = upcoming[0];
+    const p = me.profile || {};
+    const d = daysUntil(p.testDate);
+    const latest = [...me.scores].filter(scoreTotal).sort((a, b) => ((a.date || "") < (b.date || "") ? 1 : -1))[0];
+    const misses = me.questions.filter((q) => q.result !== "right").length;
+
+    const hero = next ? h("section", { class: "hero", "aria-label": "Next session" },
+      h("div", { class: "row" }, h("span", { class: "eyebrow", text: "Your next session" }), h("span", { class: "when", text: relDay(next.start) || fmtShort(next.start) })),
+      h("h2", { text: sessionTitle(next) }),
+      h("div", { class: "meta" }, h("span", { text: fmtDay(next.start) }), h("span", { text: fmtTime(next.start) + (next.end ? " – " + fmtTime(next.end) : "") }),
+        next.category ? h("span", { text: CATEGORIES[next.category]?.name }) : null, next.kind ? h("span", { text: KIND[next.kind] }) : null),
+      next.agenda ? h("div", { style: "background:rgb(255 255 255 / .1);border-radius:10px;padding:12px 14px" }, h("div", { class: "eyebrow", style: "margin-bottom:6px", text: "Plan" }), markdown(next.agenda)) : null,
+      h("div", { class: "row" }, h("a", { class: "btn", href: "#session/" + encodeURIComponent(next.id), text: "Open session" })))
+      : h("section", { class: "card" }, h("div", { class: "card-b" }, h("span", { class: "eyebrow", text: "Your next session" }), h("h2", { text: "Nothing scheduled yet" }), h("p", { class: "muted", text: "Your next session will show up here as soon as it's booked." })));
+
+    const upcomingCard = upcoming.length > 1 ? h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Coming up" })), h("div", { class: "list" }, upcoming.slice(1, 5).map((s) => sessionItem(s)))) : null;
+    const pastCard = h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Previous sessions" }), past.length > 6 ? h("a", { href: "#sessions", class: "small", text: "See all" }) : null),
+      h("div", { class: "list" }, past.length ? past.slice(0, 6).map((s) => sessionItem(s)) : [emptyCard("Your past sessions and their notes will appear here.")]));
+
+    const testCard = h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Test day" }), h("button", { type: "button", class: "btn ghost sm", text: "Edit", onclick: openTestModal })),
+      h("div", { class: "card-b" },
+        h("div", { class: "grid2", style: "grid-template-columns:1fr 1fr" },
+          h("div", {}, h("div", { class: "eyebrow", text: "Test date" }), h("div", { style: "font-weight:700;font-size:16px", text: p.testDate ? fmtDate(p.testDate) : "Not set" }), d != null && d >= 0 ? h("div", { class: "small muted", text: `${d} day${d === 1 ? "" : "s"} to go` }) : null),
+          h("div", {}, h("div", { class: "eyebrow", text: "Target" }), h("div", { class: "mono", style: "font-weight:700;font-size:20px", text: p.target ?? "—" }), latest ? h("div", { class: "small muted", text: `Latest ${scoreTotal(latest)}` }) : null))));
+
+    const chart = scoreChart(me.scores, p.target);
+    const scoresCard = h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Scores" }), h("button", { type: "button", class: "btn sm", text: "Add score", onclick: () => openScoreModal(async (score) => { await act({ op: "addScore", score }); render(); toast("Score added"); }) })),
+      h("div", { class: "card-b" }, chart, scoreList(me.scores, { canDelete: (s) => s.by === "student", onDelete: async (s) => { await act({ op: "deleteScore", scoreId: s.id }); render(); } })));
+
+    const goals = goalsCard((p.goals || []).map((g) => ({ ...g })), async (goals) => { try { await act({ op: "profile", profile: { goals } }); } catch (e) { toast(e.message); } },
+      { title: "Your goals", badge: "Optional", empty: "Want to set a goal? Add one below. Your tutor can see these." });
+
+    const qCard = h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Question practice" }), h("a", { href: "#questions", class: "btn sm", text: "Log a question" })),
+      h("div", { class: "card-b" }, h("p", { class: "small muted", text: `${me.questions.length} logged · ${misses} to review` }), skillBars(me.questions, 4)));
+
+    view().replaceChildren(
+      h("div", { class: "page-head" }, h("div", { class: "grow" }, h("span", { class: "eyebrow", text: new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) }), h("h1", { text: `Welcome back, ${me.name.split(" ")[0]}` }))),
+      h("div", { class: "cols" }, h("div", { class: "stack" }, hero, upcomingCard, pastCard, qCard), h("div", { class: "stack" }, testCard, scoresCard, goals)));
+  }
+  function openTestModal() {
+    const p = me.profile || {};
+    const date = h("input", { type: "date", id: "t_date", value: p.testDate || "" });
+    const target = h("input", { type: "number", id: "t_target", min: "400", max: "1600", step: "10", value: p.target ?? "" });
+    modal("Test date and target", h("div", { class: "grid2" }, field("Test date", date), field("Target score", target, "400–1600")), async () => {
+      if (target.value && !(Number(target.value) >= 400 && Number(target.value) <= 1600)) throw new Error("Target should be between 400 and 1600.");
+      await act({ op: "profile", profile: { testDate: date.value, target: target.value } }); render(); toast("Saved");
+    });
+  }
+
+  /* ---------- sessions list ---------- */
+  function renderSessions() {
+    const { upcoming, past } = splitSessions(me.sessions);
+    view().replaceChildren(
+      h("div", { class: "page-head" }, h("div", { class: "grow" }, h("h1", { text: "Sessions" }), h("p", { class: "muted", text: "Open any session to see its plan, notes and homework." }))),
+      h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Upcoming" })), h("div", { class: "list" }, upcoming.length ? upcoming.map((s) => sessionItem(s)) : [emptyCard("No upcoming sessions yet.")])),
+      h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Previous" })), h("div", { class: "list" }, past.length ? past.map((s) => sessionItem(s)) : [emptyCard("No past sessions yet.")])));
+  }
+
+  /* ---------- one session ---------- */
+  function renderSession(id) {
+    const s = me.sessions.find((x) => x.id === id);
+    if (!s) { view().replaceChildren(h("div", { class: "card" }, h("div", { class: "card-b" }, h("h2", { text: "Session not found" }), h("a", { href: "#sessions", text: "Back to sessions" })))); return; }
+    const past = (s.end || s.start) < Date.now();
+    const qs = me.questions.filter((q) => q.sessionId === s.id);
+    const c = s.category ? CATEGORIES[s.category] : null;
+    const hw = s.homework ? h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Homework" }),
+      h("label", { class: "prep" + (s.hwDone ? " on" : ""), style: "position:relative" }, h("input", { type: "checkbox", checked: s.hwDone, onchange: async (e) => { try { await act({ op: "homework", sessionId: s.id, done: e.target.checked }); render(); toast(e.target.checked ? "Nice work!" : "Marked not done"); } catch (x) { toast(x.message); } } }), h("span", { class: "o" }), s.hwDone ? "Done" : "Mark done")),
+      h("div", { class: "card-b" }, markdown(s.homework))) : null;
+    view().replaceChildren(
+      h("nav", { class: "crumbs", "aria-label": "Breadcrumb" }, h("a", { href: "#sessions", text: "Sessions" }), h("span", { text: "/" }), h("span", { text: fmtShort(s.start) })),
+      h("div", { class: "page-head" }, h("div", { class: "grow" },
+        h("div", { class: "row", style: "gap:8px" }, h("span", { class: "badge brand", text: KIND[s.kind] || "Session" }), past ? h("span", { class: "badge", text: "Completed" }) : h("span", { class: "badge good dot", text: relDay(s.start) || "Upcoming" })),
+        h("h1", { text: sessionTitle(s) }),
+        h("p", { class: "muted", text: `${fmtDay(s.start)} · ${fmtTime(s.start)}${s.end ? " – " + fmtTime(s.end) : ""}` }))),
+      h("div", { class: "cols" },
+        h("div", { class: "stack" },
+          h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Plan for this session" })), h("div", { class: "card-b" }, s.agenda ? markdown(s.agenda) : h("p", { class: "muted", text: past ? "No plan was added for this session." : "Your tutor hasn't added the plan yet." }))),
+          h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Session notes" })), h("div", { class: "card-b" }, s.notes ? markdown(s.notes) : h("p", { class: "muted", text: past ? "Notes will appear here once your tutor adds them." : "Notes from the session will appear here afterward." }))),
+          hw,
+          h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Questions from this session" }), h("button", { type: "button", class: "btn sm", text: "Log a question", onclick: () => openQuestionModal(s.id) })),
+            h("div", { class: "card-b tight" }, questionTable(qs, { empty: "No questions logged for this session yet.", sessions: me.sessions, canDelete: (q) => q.by === "student", onDelete: delQ })))),
+        h("div", { class: "stack" },
+          h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Focus" })), h("div", { class: "card-b" },
+            h("dl", { class: "kv" }, h("dt", { text: "Type" }), h("dd", { text: KIND[s.kind] || "Session" }),
+              h("dt", { text: "Category" }), h("dd", { text: c ? c.name : "—" }), h("dt", { text: "Skill" }), h("dd", { text: s.skill || "—" }),
+              s.practiceScore ? h("dt", { text: "Practice score" }) : null, s.practiceScore ? h("dd", { class: "mono", text: s.practiceScore }) : null))))));
+  }
+
+  /* ---------- questions ---------- */
+  async function delQ(q) { try { await act({ op: "deleteQuestion", qid: q.id }); render(); toast("Deleted"); } catch (e) { toast(e.message); } }
+  function openQuestionModal(sessionId) {
+    let close;
+    const form = questionForm("mq", async (q) => { await act({ op: "addQuestion", question: q }); close(); render(); }, { sessions: me.sessions, sessionId });
+    close = modal("Log a question", form, () => false, "", { hideOk: true });
+  }
   function renderQuestions() {
-    const all = me.questions || [], f = $("#qFilter").value;
-    const list = all.filter((q) => f === "all" || (f === "miss" ? q.result !== "right" : q.section === f));
-    $("#qCount").textContent = `${all.length} logged`;
-    $("#acc").replaceChildren(accuracy(all));
-    $("#qList").replaceChildren(questionTable(list.slice(0, 300), {
-      canDelete: (q) => q.by === "student",
-      onDelete: async (q) => { try { me = await api("/api/student", { body: { op: "deleteQuestion", id: q.id } }); renderQuestions(); toast("Deleted"); } catch (e) { toast(e.message); } },
-      showBy: true,
-    }));
+    const list = filterQuestions(me.questions, qf);
+    const table = h("div", {});
+    const redraw = () => table.replaceChildren(questionTable(filterQuestions(me.questions, qf), { sessions: me.sessions, canDelete: (q) => q.by === "student", onDelete: delQ }));
+    redraw();
+    view().replaceChildren(
+      h("div", { class: "page-head" }, h("div", { class: "grow" }, h("h1", { text: "Questions" }), h("p", { class: "muted", text: "Log the practice questions you miss or guess on. The question ID is shown in Bluebook and the College Board question bank." }))),
+      h("div", { class: "cols" },
+        h("div", { class: "stack" },
+          h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Log a question" })), h("div", { class: "card-b" }, questionForm("sq", async (q) => { await act({ op: "addQuestion", question: q }); renderQuestions(); }, { sessions: me.sessions }))),
+          h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Your questions" }), h("span", { class: "xs muted", text: `${list.length} shown · ${me.questions.length} total` })),
+            h("div", { class: "card-b", style: "padding-bottom:0" }, questionFilters(qf, () => { redraw(); })), h("div", { class: "card-b tight" }, table))),
+        h("div", { class: "stack" }, h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Weakest skills" })), h("div", { class: "card-b" }, skillBars(me.questions, 10))))));
   }
 
-  /* goals form */
-  function buildGoals() {
-    const wrap = $("#bubbles");
-    for (const [group, , items] of DOMAINS) {
-      wrap.append(h("div", { class: "bubbles" }, h("h3", { text: group }),
-        items.map(([k, l]) => h("label", { class: "bub" }, h("input", { type: "checkbox", name: "focus", value: k, id: "f_" + k }), h("span", { class: "o", "aria-hidden": "true" }), l))));
-    }
-    DAYS.forEach((d) => $("#daychips").append(h("label", { class: "day" }, h("input", { type: "checkbox", name: "day", value: d, id: "d_" + d }), h("span", { text: d }))));
-    $("#goalForm").addEventListener("input", scoreline);
-    $("#goalForm").addEventListener("submit", saveGoals);
+  /* ---------- routing ---------- */
+  function render() {
+    const hash = decodeURIComponent(location.hash.slice(1) || "home");
+    const [v, arg] = hash.split("/");
+    document.querySelectorAll(".appbar nav a").forEach((a) => a.toggleAttribute("aria-current", a.dataset.v === (v === "session" ? "sessions" : v)) && a.setAttribute("aria-current", "page"));
+    if (v === "session") renderSession(hash.slice(8));
+    else if (v === "sessions") renderSessions();
+    else if (v === "questions") renderQuestions();
+    else renderHome();
   }
-  function fillGoals(p) {
-    const set = (id, v) => { if (v != null) $(id).value = v; };
-    set("#s_grade", p.grade); set("#s_school", p.school); set("#s_test", p.testDate); set("#s_contact", p.contact);
-    set("#s_rw", p.scores?.rw); set("#s_math", p.scores?.math); set("#s_src", p.scores?.source); set("#s_target", p.target);
-    (p.goals || []).forEach((g, i) => set("#g" + (i + 1), g)); set("#s_hard", p.hardest); set("#s_else", p.extra); set("#s_time", p.times);
-    document.querySelectorAll("input[name=focus]").forEach((i) => (i.checked = (p.focus || []).includes(i.value)));
-    document.querySelectorAll("input[name=day]").forEach((i) => (i.checked = (p.days || []).includes(i.value)));
-    if (p.updatedAt) $("#savedAt").textContent = "Last saved " + new Date(p.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    scoreline();
-  }
-  const clamp = (v, lo, hi) => { if (v === "") return null; const n = Math.round(Number(v)); return Number.isFinite(n) && n >= lo && n <= hi ? n : null; };
-  function scoreline() {
-    const rw = clamp($("#s_rw").value, 200, 800), m = clamp($("#s_math").value, 200, 800), t = clamp($("#s_target").value, 400, 1600);
-    const el = $("#scoreline"); el.replaceChildren();
-    const cur = rw && m ? rw + m : null;
-    el.append("Current total ", h("b", { text: cur ?? "—" }), " · Target ", h("b", { text: t ?? "—" }));
-    if (cur && t) el.append(" · ", h("b", { text: t > cur ? `+${t - cur}` : "0" }), t > cur ? " points to go" : " already there");
-    const dd = daysUntil($("#s_test").value);
-    if (dd != null && dd >= 0) el.append(" · ", h("b", { text: dd }), dd === 1 ? " day until test" : " days until test");
-  }
-  async function saveGoals(e) {
-    e.preventDefault();
-    const err = $("#formErr"); err.textContent = "";
-    for (const [id, lo, hi, lab] of [["#s_rw", 200, 800, "Reading & Writing"], ["#s_math", 200, 800, "Math"], ["#s_target", 400, 1600, "Target"]]) {
-      const v = $(id).value; if (v && clamp(v, lo, hi) == null) { err.textContent = `${lab} should be between ${lo} and ${hi}.`; $(id).focus(); return; }
-    }
-    const profile = {
-      grade: $("#s_grade").value, school: $("#s_school").value, testDate: $("#s_test").value, contact: $("#s_contact").value,
-      scores: { rw: $("#s_rw").value, math: $("#s_math").value, source: $("#s_src").value }, target: $("#s_target").value,
-      focus: [...document.querySelectorAll("input[name=focus]:checked")].map((i) => i.value),
-      goals: [$("#g1").value, $("#g2").value, $("#g3").value], hardest: $("#s_hard").value, extra: $("#s_else").value,
-      days: [...document.querySelectorAll("input[name=day]:checked")].map((i) => i.value), times: $("#s_time").value,
-    };
-    const btn = $("#saveGoals"); btn.disabled = true;
-    try { me = await api("/api/student", { body: { op: "profile", profile } }); fillGoals(me.profile); toast("Goals saved. Your tutor can see them now."); }
-    catch (e2) { err.textContent = e2.message; }
-    finally { btn.disabled = false; }
-  }
-
-  async function boot() {
-    buildGoals();
-    try { me = await api("/api/student"); } catch (e) { toast(e.message); return; }
-    $("#hello").textContent = `Hi, ${me.name.split(" ")[0]}!`; $("#who").textContent = me.name;
-    fillGoals(me.profile || {});
-    renderQuestions();
-    const noGoals = !(me.profile && (me.profile.goals || []).length);
-    show(location.hash === "#goals" || (noGoals && location.hash !== "#questions") ? "g" : "q");
-  }
-  boot();
+  window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
+  $("#logout").onclick = logout;
+  (async () => {
+    try { me = await api("/api/student"); } catch (e) { view().replaceChildren(h("div", { class: "loading", text: e.message })); return; }
+    $("#who").textContent = me.name; $("#av").textContent = initials(me.name);
+    render();
+    setInterval(async () => { if (document.hidden || $("#modalRoot").childElementCount || document.activeElement?.matches("input,textarea,select")) return; try { me = await api("/api/student"); render(); } catch {} }, 5 * 60 * 1000);
+  })();
 })();

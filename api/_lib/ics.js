@@ -47,10 +47,12 @@ export function parseICS(text, fromTs, toTs) {
     else cur.props[p.name] = p;
   }
   const overrides = new Set(); const out = [];
-  const push = (uid, summary, start, end, status) => {
+  const stamp = (ts) => new Date(ts).toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
+  // Stable ids: a one-off event keeps its id when moved; a repeat instance is keyed by its original start.
+  const push = (uid, summary, start, end, status, key) => {
     if (status === "CANCELLED") return;
     if (end < fromTs || start > toTs) return;
-    out.push({ id: `${uid}_${new Date(start).toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "")}`, summary, start, end });
+    out.push({ id: key == null ? uid : `${uid}_${stamp(key)}`, summary, start, end });
   };
   for (const e of raw) {
     const rid = e.props["RECURRENCE-ID"]; if (!rid) continue;
@@ -62,9 +64,10 @@ export function parseICS(text, fromTs, toTs) {
     const st = P.DTSTART && parseDate(P.DTSTART.value, P.DTSTART.params, calTz); if (!st) continue;
     const en = P.DTEND ? parseDate(P.DTEND.value, P.DTEND.params, calTz) : null;
     const dur = en ? en.ts - st.ts : (st.allDay ? 86400e3 : 3600e3);
-    if (P["RECURRENCE-ID"] || !P.RRULE) { push(uid, summary, st.ts, st.ts + dur, status); continue; }
+    if (P["RECURRENCE-ID"]) { const r = parseDate(P["RECURRENCE-ID"].value, P["RECURRENCE-ID"].params, calTz); push(uid, summary, st.ts, st.ts + dur, status, r ? r.ts : st.ts); continue; }
+    if (!P.RRULE) { push(uid, summary, st.ts, st.ts + dur, status); continue; }
     const rule = Object.fromEntries(P.RRULE.value.split(";").map((kv) => kv.split("=")).map(([k, v]) => [k.toUpperCase(), v]));
-    if (!["DAILY", "WEEKLY"].includes(rule.FREQ)) { push(uid, summary, st.ts, st.ts + dur, status); continue; }
+    if (!["DAILY", "WEEKLY"].includes(rule.FREQ)) { push(uid, summary, st.ts, st.ts + dur, status, st.ts); continue; }
     const interval = Math.max(1, Number(rule.INTERVAL) || 1);
     const count = rule.COUNT ? Number(rule.COUNT) : Infinity;
     const until = rule.UNTIL ? parseDate(rule.UNTIL, {}, calTz)?.ts ?? Infinity : Infinity;
@@ -81,7 +84,7 @@ export function parseICS(text, fromTs, toTs) {
       if (ts > until || n >= count || ts > toTs) break;
       n++;
       if (ex.has(ts) || overrides.has(`${uid}|${ts}`)) continue;
-      push(uid, summary, ts, ts + dur, status);
+      push(uid, summary, ts, ts + dur, status, ts);
     }
   }
   return out.sort((a, b) => a.start - b.start);
