@@ -1,6 +1,6 @@
 // Shared server helpers: responses, sessions, private storage, roster, names.
 import crypto from "node:crypto";
-import { get, put, list, del, BlobPreconditionFailedError } from "@vercel/blob";
+import { get, head, put, list, del, BlobPreconditionFailedError } from "@vercel/blob";
 import { parseICS } from "./ics.js";
 
 /* ---------- responses ---------- */
@@ -81,28 +81,33 @@ async function streamToString(stream) {
   for (;;) { const { done, value } = await reader.read(); if (done) break; parts.push(Buffer.from(value)); }
   return Buffer.concat(parts).toString("utf8");
 }
+const notFound = (e) => e?.name === "BlobNotFoundError" || /not.?found/i.test(e?.message || "");
 export async function readJSON(path, fallback = null) {
+  // The version stamp comes from the storage API (head), not the download, so it matches what a conditional save checks.
+  let meta;
+  try { meta = await head(path); } catch (e) { if (notFound(e)) return { data: fallback, etag: null }; throw e; }
   let r;
   try { r = await get(path, { ...OPTS, useCache: false }); }
-  catch (e) { if (e?.name === "BlobNotFoundError" || /not.?found/i.test(e?.message || "")) return { data: fallback, etag: null }; throw e; }
+  catch (e) { if (notFound(e)) return { data: fallback, etag: null }; throw e; }
   if (!r || r.statusCode !== 200 || !r.stream) return { data: fallback, etag: null };
-  return { data: JSON.parse(await streamToString(r.stream)), etag: r.blob.etag };
+  return { data: JSON.parse(await streamToString(r.stream)), etag: meta?.etag || null };
 }
 export async function writeJSON(path, data, etag) {
   const opts = { ...OPTS, contentType: "application/json", addRandomSuffix: false, allowOverwrite: true, cacheControlMaxAge: 60 };
   if (etag) opts.ifMatch = etag;
   return put(path, JSON.stringify(data), opts);
 }
-/** Read, change, write, with one retry if someone else wrote in between. */
+const isConflict = (e) => e instanceof BlobPreconditionFailedError || e?.name === "BlobPreconditionFailedError";
+/** Read, change, write. Retries if the file changed in between; as a last resort saves anyway rather than failing. */
 export async function updateJSON(path, fallback, fn) {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     const { data, etag } = await readJSON(path, fallback);
     const next = await fn(structuredClone(data ?? fallback));
     if (next === undefined) return data;
-    try { await writeJSON(path, next, etag); return next; }
-    catch (e) { if (e instanceof BlobPreconditionFailedError || e?.name === "BlobPreconditionFailedError") continue; throw e; }
+    try { await writeJSON(path, next, attempt < 3 ? etag : null); return next; }
+    catch (e) { if (!isConflict(e)) throw e; console.warn("save conflict, retrying", path, attempt); await new Promise((r) => setTimeout(r, 150 * (attempt + 1))); }
   }
-  throw Object.assign(new Error("Someone else was saving at the same moment. Try again."), { status: 409 });
+  throw Object.assign(new Error("Couldn't save just now. Try again."), { status: 409 });
 }
 export async function removePrefix(prefix) {
   let cursor;
