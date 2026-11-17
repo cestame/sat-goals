@@ -264,6 +264,52 @@ window.SAT = (() => {
     }, "Add score");
   }
 
+  /* ---------- homework topic suggestions (tutor only) ---------- */
+  // Words that point to an SAT skill when they show up in session notes.
+  const SKILL_HINTS = [
+    ["conv", "Boundaries", /semicolon|comma splice|\bcommas?\b|colon|dash|punctuat|boundar|run-on|fragment/i],
+    ["conv", "Form, Structure, and Sense", /subject[- ]verb|verb tense|tense|pronoun|agreement|modifier|plural|possessive|apostrophe|form, structure/i],
+    ["expr", "Transitions", /transition/i],
+    ["expr", "Rhetorical Synthesis", /rhetorical synthesis|student'?s notes|notes question/i],
+    ["craft", "Words in Context", /words? in context|vocab|word choice|meaning of the word/i],
+    ["craft", "Text Structure and Purpose", /text structure|purpose|function of the/i],
+    ["craft", "Cross-Text Connections", /cross[- ]text|two texts|text 1|text 2/i],
+    ["info", "Central Ideas and Details", /central idea|main idea|main point|details/i],
+    ["info", "Command of Evidence: Quantitative", /graph|table|chart|quantitative/i],
+    ["info", "Command of Evidence: Textual", /textual evidence|command of evidence|support the claim|quotation/i],
+    ["info", "Inferences", /inferenc|logically complete/i],
+    ["alg", "Linear equations in one variable", /linear equations? in one|solve for x/i],
+    ["alg", "Linear functions", /linear function|slope|y-intercept|rate of change/i],
+    ["alg", "Systems of two linear equations in two variables", /system of|systems of|simultaneous/i],
+    ["alg", "Linear inequalities in one or two variables", /inequalit/i],
+    ["adv", "Nonlinear functions", /quadratic|parabola|exponential|vertex|polynomial|nonlinear function/i],
+    ["adv", "Equivalent expressions", /equivalent expression|factor|simplify|exponent rules|radical/i],
+    ["adv", "Nonlinear equations in one variable and systems of equations in two variables", /nonlinear equation|discriminant|quadratic formula/i],
+    ["psda", "Percentages", /percent/i],
+    ["psda", "Ratios, rates, proportional relationships, and units", /ratio|proportion|unit conversion|\brates?\b/i],
+    ["psda", "One-variable data: distributions and measures of center and spread", /mean|median|mode|standard deviation|range|outlier/i],
+    ["psda", "Two-variable data: models and scatterplots", /scatterplot|line of best fit|trend line/i],
+    ["psda", "Probability and conditional probability", /probabilit/i],
+    ["psda", "Inference from sample statistics and margin of error", /margin of error|sample/i],
+    ["psda", "Evaluating statistical claims: observational studies and experiments", /observational|experiment|random assign/i],
+    ["geo", "Area and volume", /\barea\b|volume|surface area/i],
+    ["geo", "Lines, angles, and triangles", /angle|triangle|parallel lines|similar triangles/i],
+    ["geo", "Right triangles and trigonometry", /trig|sine|cosine|tangent|pythag|right triangle|radian/i],
+    ["geo", "Circles", /circle|radius|diameter|arc|sector|circumference/i],
+  ];
+  /** Topics to assign homework on: skills the notes mention, then the session's skill, then the student's weakest skills. */
+  function homeworkTopics(session, questions) {
+    const out = [], seen = new Set();
+    const add = (cat, skill, why) => { if (!skill || seen.has(skill)) return; seen.add(skill); out.push({ cat, skill, why }); };
+    const text = session.notes || "";
+    for (const [cat, skill, re] of SKILL_HINTS) if (re.test(text)) add(cat, skill, "in your notes");
+    for (const [cat, c] of Object.entries(CATEGORIES)) for (const sk of c.skills) if (text.toLowerCase().includes(sk.toLowerCase())) add(cat, sk, "in your notes");
+    if (session.skill) add(session.category, session.skill, "this session's skill");
+    for (const v of skillStats(questions || [])) if (v.skill && v.pct < 70) add(v.cat, v.skill, `${v.right}/${v.n} right`);
+    return out.slice(0, 5);
+  }
+  const needsHomework = (s) => !!(s.notes && s.notes.trim()) && !(s.homework && s.homework.trim()) && !s.cancelled;
+
   /* ---------- homework ---------- */
   function dueBadge(due, done) {
     if (done) return h("span", { class: "badge good", text: "Done" });
@@ -335,5 +381,5 @@ window.SAT = (() => {
 
   return { $, h, toast, api, logout, CATEGORIES, SECTION, KIND, RESULT, catOf, ymd, today, fmtDate, fmtDay, fmtShort, fmtTime, daysUntil, relDay, isToday, ago, initials,
     sessionTitle, sessionSub, datebox, splitSessions, markdown, field, categorySelect, skillSelect, modal,
-    questionForm, filterQuestions, questionFilters, questionTable, skillStats, skillBars, scoreTotal, scoreChart, scoreList, openScoreModal, goalsCard, dueBadge, homeworkItems, homeworkCard, saver, hasUnsaved, clearUnsaved };
+    questionForm, filterQuestions, questionFilters, questionTable, skillStats, skillBars, scoreTotal, scoreChart, scoreList, openScoreModal, goalsCard, dueBadge, homeworkItems, homeworkCard, saver, hasUnsaved, clearUnsaved, homeworkTopics, needsHomework };
 })();

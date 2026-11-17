@@ -60,7 +60,7 @@ export default handler(async (req, res) => {
       const cal = await calendarEvents(false); const ev = cal.events.find((e) => e.id === sid);
       await tutorUpdate((t) => {
         const i = t.sessions.findIndex((x) => x.id === sid);
-        if (i < 0) { if (!ev) throw Object.assign(new Error("That session isn't on the calendar any more."), { status: 404 }); t.sessions.push({ id: sid, start: ev.start, end: ev.end, kind: "skill", ...patch }); }
+        if (i < 0) { if (!ev) throw Object.assign(new Error("That session isn't on the calendar any more."), { status: 404 }); t.sessions.push({ id: sid, start: ev.start, end: ev.end, ...patch }); }
         else t.sessions[i] = { ...t.sessions[i], ...patch, ...(ev ? { start: ev.start, end: ev.end } : {}), updatedAt: Date.now() };
         return t;
       });
@@ -71,7 +71,7 @@ export default handler(async (req, res) => {
       const start = Date.parse(`${d}T${tm}:00${str(b.offset, 6) || "-08:00"}`);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || isNaN(start)) return fail(res, 400, "Pick a date for the session.");
       const mins = Math.max(15, Math.min(300, Number(b.mins) || 60));
-      const rec = { id: "m" + newId(), start, end: start + mins * 60e3, manual: true, kind: "skill", ...cleanSessionPatch(b.patch || {}) };
+      const rec = { id: "m" + newId(), start, end: start + mins * 60e3, manual: true, ...cleanSessionPatch(b.patch || {}) };
       await tutorUpdate((t) => { t.sessions.push(rec); return t; });
       const [everyone, cal] = await Promise.all([loadAll(true), calendarEvents(false)]);
       return ok(res, { student: view(everyone.find((x) => x.id === id), cal.events, everyone), sessionId: rec.id });

@@ -2,7 +2,7 @@
   "use strict";
   const { $, h, toast, api, logout, CATEGORIES, KIND, ymd, today, fmtDate, fmtDay, fmtShort, fmtTime, daysUntil, relDay, ago, initials,
     sessionTitle, sessionSub, datebox, splitSessions, markdown, field, categorySelect, skillSelect, modal,
-    questionForm, filterQuestions, questionFilters, questionTable, skillStats, skillBars, scoreTotal, scoreChart, scoreList, openScoreModal, goalsCard, homeworkCard, dueBadge, saver, hasUnsaved, clearUnsaved } = SAT;
+    questionForm, filterQuestions, questionFilters, questionTable, skillStats, skillBars, scoreTotal, scoreChart, scoreList, openScoreModal, goalsCard, homeworkCard, dueBadge, saver, hasUnsaved, clearUnsaved, homeworkTopics, needsHomework } = SAT;
   const STATUSES = ["Active", "New", "Paused", "Done"];
   const S = { students: new Map(), cal: {}, unmatched: [], loaded: false, qf: { result: "miss" } };
   const view = () => $("#view");
@@ -71,6 +71,7 @@
     const weekAgo = ymd(new Date(now - 7 * 86400e3));
     const qWeek = all().reduce((t, st) => t + st.allQuestions.filter((q) => q.date >= weekAgo).length, 0);
     const unprepped = week.filter(({ s }) => !s.prepared).length;
+    const needHw = rows.filter(({ s }) => (s.end || s.start) < now && needsHomework(s)).sort((a, b) => b.s.start - a.s.start);
     const stat = (v, l, alert) => h("div", { class: "stat" + (alert ? " alert" : "") }, h("div", { class: "v", text: v }), h("div", { class: "l", text: l }));
     const days = h("div", {});
     let day = "", list = null;
@@ -85,7 +86,9 @@
         h("span", { class: "small " + (S.cal.error ? "err" : "muted"), text: calLine }),
         h("button", { type: "button", class: "btn sm", text: "Sync calendar", onclick: async (e) => { e.target.disabled = true; try { await load(true); render(); toast("Calendar synced"); } catch (x) { toast(x.message); } e.target.disabled = false; } })),
       h("div", { class: "stats" }, stat(week.length, "sessions in the next 7 days"), stat(unprepped, unprepped ? "not prepped yet" : "all prepped", unprepped > 0),
-        stat(needNotes.length, "recent sessions without notes", needNotes.length > 0), stat(qWeek, "questions logged this week")),
+        stat(needNotes.length, "recent sessions without notes", needNotes.length > 0), stat(needHw.length, needHw.length ? "need homework assigned" : "homework all assigned", needHw.length > 0), stat(qWeek, "questions logged this week")),
+      needHw.length ? h("div", { class: "card private" }, h("div", { class: "card-h" }, h("h2", { text: "Assign homework" }), h("span", { class: "small muted", text: "Notes are in for these sessions, but no homework yet" })),
+        h("div", { class: "list" }, needHw.slice(0, 8).map(({ st, s }) => hwReminderRow(st, s)))) : null,
       h("div", { class: "card" }, h("div", { class: "card-h" }, h("h2", { text: "This week" }), later ? h("span", { class: "small muted", text: `${later} more later` }) : null),
         week.length ? days : h("div", { class: "empty", text: "No sessions in the next 7 days. Sessions come from events titled “SAT - Name” on your Tutoring calendar." })),
       needNotes.length ? h("div", { class: "card" }, h("div", { class: "card-h" }, h("h2", { text: "Add notes" }), h("span", { class: "small muted", text: "Paste your Granola notes so students can see them" })),
@@ -95,6 +98,16 @@
           h("div", {}, h("div", { style: "font-weight:600", text: e.name }), h("div", { class: "small muted", text: "Next: " + fmtShort(e.start) })),
           h("div", { class: "ctl" }, h("button", { type: "button", class: "btn sm", text: "Link to student", onclick: () => openLinkModal(e.name) }),
             h("button", { type: "button", class: "btn sm primary", text: "Add as new", onclick: () => safe(op({ op: "addStudent", name: e.name, calNames: [e.name] })).then(async () => { await load(false); render(); toast("Added " + e.name); }) })))))) : null);
+  }
+  function hwReminderRow(st, s) {
+    const href = `#session/${st.id}/${encodeURIComponent(s.id)}`;
+    const topics = homeworkTopics(s, st.allQuestions);
+    return h("div", { class: "srow" }, datebox(s.start),
+      h("div", { style: "min-width:0;display:grid;gap:6px" },
+        h("a", { href, style: "font-weight:700;text-decoration:none;color:inherit", text: `${st.name} · ${sessionTitle(s)}` }),
+        topics.length ? h("div", { class: "row", style: "gap:6px" }, h("span", { class: "xs muted", text: "Suggested topics:" }), topics.slice(0, 3).map((x) => h("span", { class: "badge brand", title: x.why, text: x.skill })))
+          : h("span", { class: "xs muted", text: "No SAT skills spotted in the notes. Pick topics from the session." })),
+      h("div", { class: "ctl" }, h("a", { class: "btn sm primary", href: href + "#hw", text: "Add homework" })));
   }
   function openLinkModal(calName) {
     const sel = h("select", { id: "lk_st" }, all().map((s) => h("option", { value: s.id, text: s.name })));
@@ -234,12 +247,12 @@
   function openAddSession(st) {
     const date = h("input", { type: "date", id: "as_date", value: today() }), time = h("input", { type: "time", id: "as_time", value: "16:00" });
     const mins = h("input", { type: "number", id: "as_mins", value: "60", min: "15", step: "15" });
-    const kind = h("select", { id: "as_kind" }, Object.entries(KIND).map(([k, l]) => h("option", { value: k, text: l })));
+    const kind = h("select", { id: "as_kind" }, h("option", { value: "", text: "Automatic (Diagnostic if it's their first session)" }), Object.entries(KIND).map(([k, l]) => h("option", { value: k, text: l })));
     modal("Add a session", h("div", { style: "display:grid;gap:12px" }, h("p", { class: "small muted", text: "Use this for sessions that aren't on your calendar. Calendar sessions appear on their own." }),
       h("div", { class: "grid3" }, field("Date", date), field("Start", time), field("Minutes", mins)), field("Type", kind)), async () => {
       if (!date.value) throw new Error("Pick a date.");
       const off = -new Date(`${date.value}T${time.value || "16:00"}:00`).getTimezoneOffset(); const sign = off >= 0 ? "+" : "-"; const a = Math.abs(off);
-      const r = await op({ op: "addSession", id: st.id, date: date.value, time: time.value, mins: mins.value, offset: `${sign}${String(Math.floor(a / 60)).padStart(2, "0")}:${String(a % 60).padStart(2, "0")}`, patch: { kind: kind.value } });
+      const r = await op({ op: "addSession", id: st.id, date: date.value, time: time.value, mins: mins.value, offset: `${sign}${String(Math.floor(a / 60)).padStart(2, "0")}:${String(a % 60).padStart(2, "0")}`, patch: kind.value ? { kind: kind.value } : {} });
       location.hash = `session/${st.id}/${encodeURIComponent(r.sessionId)}`;
     }, "Add session");
   }
@@ -279,6 +292,13 @@
     const sug = suggestSkill(st);
     const qs = st.allQuestions.filter((q) => q.sessionId === s.id);
     const hwDone = st.hw && st.hw[s.id];
+    const topics = homeworkTopics(s, st.allQuestions);
+    const addTopic = (x) => { const line = `- ${x.skill} (${CATEGORIES[x.cat]?.name || ""}): `; hw.value = (hw.value.trim() ? hw.value.replace(/\s*$/, "\n") : "") + line; svHw.mark(); hw.focus(); hw.setSelectionRange(hw.value.length, hw.value.length); };
+    const hwReminder = needsHomework(s) ? h("div", { class: "callout", role: "note", style: "display:grid;gap:8px" },
+      h("div", {}, h("strong", { text: "Your notes are in. Assign homework for this session." }), h("span", { class: "xs muted", text: "  Only you see this." })),
+      topics.length ? h("div", { class: "row", style: "gap:6px" }, h("span", { class: "small", text: "Suggested topics:" }),
+        topics.map((x) => h("button", { type: "button", class: "btn sm", title: x.why, text: "+ " + x.skill, onclick: () => addTopic(x) })))
+        : h("span", { class: "small", text: "I didn't spot specific SAT skills in the notes. Pick topics from what you covered." })) : null;
 
     view().replaceChildren(
       h("nav", { class: "crumbs", "aria-label": "Breadcrumb" }, h("a", { href: `#student/${st.id}`, text: st.name }), h("span", { text: "/" }), h("a", { href: `#student/${st.id}/sessions`, text: "Sessions" }), h("span", { text: "/" }), h("span", { text: fmtShort(s.start) })),
@@ -290,7 +310,8 @@
         h("div", { class: "stack" },
           h("div", { class: "card private" }, h("div", { class: "card-h" }, h("h3", { text: "Session plan" }), pa.btn), h("div", { class: "card-b" }, agenda, pa.box, h("div", { class: "row" }, h("span", { class: "xs muted grow", text: "Private. Students only see the planned topic." }), svAgenda.status, svAgenda.btn))),
           h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Session notes" }), h("span", { class: "xs muted", text: "Granola" }), pn.btn), h("div", { class: "card-b" }, notes, pn.box, h("div", { class: "row" }, h("span", { class: "xs muted grow", text: "Paste from Granola. Headings and bullet points keep their formatting. Shown to the student." }), svNotes.status, svNotes.btn))),
-          h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Homework" }), s.homework ? dueBadge(s.homeworkDue, hwDone) : null),
+          hwReminder,
+          h("div", { class: "card", id: "hwcard" }, h("div", { class: "card-h" }, h("h3", { text: "Homework" }), s.homework ? dueBadge(s.homeworkDue, hwDone) : null),
             h("div", { class: "card-b" }, hw, h("div", { class: "row", style: "align-items:flex-end" }, h("div", { style: "width:200px" }, field("Due date", due)), h("span", { class: "grow" }), svHw.status, svHw.btn),
               s.homework ? h("p", { class: "xs muted", text: hwDone ? "The student marked this done." : "Not marked done yet." }) : null)),
           h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Questions from this session" }), h("span", { class: "xs muted", text: `${qs.length}` })),
@@ -308,6 +329,7 @@
             h("button", { type: "button", class: "btn sm", text: s.cancelled ? "Mark as happening" : "Mark cancelled", onclick: () => safe(save({ cancelled: !s.cancelled })).then(refreshIfClean) }),
             !s.calendar ? h("button", { type: "button", class: "btn sm danger", text: "Delete session", onclick: async () => { if (!confirm("Delete this session and its notes?")) return; await safe(op({ op: "deleteSession", id: st.id, sessionId: s.id })); clearUnsaved(); location.hash = `student/${st.id}/sessions`; } }) : null)))));
   }
+  function scrollToHw() { if (location.hash.endsWith("#hw")) setTimeout(() => { const c = $("#hwcard"); if (c) { c.scrollIntoView({ behavior: "smooth", block: "center" }); $("#se_homework")?.focus(); } }, 50); }
   function renderSessionKeep() { const y = window.scrollY; render(); window.scrollTo(0, y); }
 
   /* ---------- routing ---------- */
@@ -316,7 +338,7 @@
     renderRoster();
     if (!S.loaded) return;
     if (parts[0] === "student") renderStudent(parts[1], parts[2]);
-    else if (parts[0] === "session") renderSession(parts[1], decodeURIComponent(parts.slice(2).join("/")));
+    else if (parts[0] === "session") { renderSession(parts[1], decodeURIComponent(parts.slice(2).join("/").replace(/#hw$/, ""))); scrollToHw(); }
     else renderHome();
   }
   let lastHash = location.hash, reverting = false;

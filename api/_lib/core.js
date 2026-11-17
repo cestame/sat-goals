@@ -247,16 +247,26 @@ export function eventOwner(name, people) {
 export function eventsFor(person, events, people) {
   return events.filter((e) => eventOwner(e.name, people) === person.id);
 }
-/** Calendar events + saved session records, newest last. */
+/* Students added from this date on get their first session labeled as a diagnostic. */
+const DIAGNOSTIC_FROM = Date.parse("2026-11-17T08:00:00Z");
+/** Calendar events + saved session records, oldest first. */
 export function mergeSessions(person, events, people) {
   const recs = new Map((person.tutor.sessions || []).map((r) => [r.id, r]));
   const out = [];
   for (const ev of eventsFor(person, events, people || [person])) {
     const r = recs.get(ev.id) || {}; recs.delete(ev.id);
-    out.push({ kind: "skill", ...r, id: ev.id, start: ev.start, end: ev.end, calendar: true });
+    out.push({ ...r, id: ev.id, start: ev.start, end: ev.end, calendar: true });
   }
-  for (const r of recs.values()) if (r.start) out.push({ kind: "skill", ...r, calendar: false });
-  return out.sort((a, b) => a.start - b.start);
+  for (const r of recs.values()) if (r.start) out.push({ ...r, calendar: false });
+  out.sort((a, b) => a.start - b.start);
+  const newStudent = (person.student.createdAt || 0) >= DIAGNOSTIC_FROM;
+  const first = out.find((x) => !x.cancelled);
+  for (const x of out) {
+    // A type the tutor picked always wins; otherwise a new student's first session is the diagnostic.
+    if (x.kindChosen) continue;
+    x.kind = newStudent && x === first ? "diagnostic" : (x.kind && x.kind !== "diagnostic" ? x.kind : "skill");
+  }
+  return out;
 }
 export function studentSafeSession(s, hw) {
   const { privateNote, prepared, agenda, ...rest } = s;   // the session plan is the tutor's own
@@ -317,7 +327,7 @@ export function cleanQuestion(o = {}, by) {
 /** Fields the tutor can change on a session. */
 export function cleanSessionPatch(p = {}) {
   const out = {};
-  if ("kind" in p) out.kind = KINDS.includes(p.kind) ? p.kind : "skill";
+  if ("kind" in p) { out.kind = KINDS.includes(p.kind) ? p.kind : "skill"; out.kindChosen = true; }
   if ("category" in p) { out.category = cat(p.category); out.skill = skillOf(out.category, p.skill); }
   if ("title" in p) out.title = str(p.title, 120);
   if ("agenda" in p) out.agenda = str(p.agenda, 6000);
