@@ -141,6 +141,7 @@ export function blankTutor(name) {
 const ROSTER_VERSIONS = [
   { v: 1, add: [["Una K."], ["Riley Z."], ["Mason D."], ["Benjamin D.", "Benjamin D"], ["Adriana M."], ["Bailee K."]] },
   { v: 2, add: [["Phuong"]] },
+  { v: 3, rename: [["Una K.", "Euna K."], ["Phuong", "Phuong N."]], add: [["Joshua S."], ["Clayton"]] },
 ];
 export async function ensureSeed() {
   const { data, etag } = await readJSON(P.seeded, null);
@@ -150,7 +151,14 @@ export async function ensureSeed() {
   const existing = await loadAll(true);
   const names = existing.flatMap((p) => [p.student.name, ...(p.tutor.calNames || [])].map(norm));
   for (const r of todo) {
-    for (const [name, ...alts] of r.add) {
+    for (const [from, to] of r.rename || []) {
+      const p = existing.find((x) => [x.student.name, ...(x.tutor.calNames || [])].some((n) => norm(n) === norm(from)));
+      if (!p) continue;
+      await updateJSON(P.student(p.id), null, (s) => (s ? { ...s, name: to } : undefined));
+      await updateJSON(P.tutor(p.id), blankTutor(""), (t) => ({ ...t, calNames: [...new Set([to, from, ...(t.calNames || [])])] }));
+      names.push(norm(to));
+    }
+    for (const [name, ...alts] of r.add || []) {
       if (names.includes(norm(name))) continue;
       const id = newId();
       await writeJSON(P.student(id), blankStudent(name));
@@ -231,15 +239,19 @@ export async function calendarEvents(force) {
     return { configured: true, events: [], error: "Couldn't read your calendar: " + e.message };
   }
 }
-export function eventsFor(person, events) {
-  const keys = [person.student.name, ...(person.tutor.calNames || [])].map(norm);
-  return events.filter((e) => keys.includes(norm(e.name)));
+/** Which student a calendar name belongs to: exact name first, then first name + last initial, only if exactly one fits. */
+export function eventOwner(name, people) {
+  const m = matchName(name, people.map((p) => ({ id: p.id, name: p.student.name, calNames: p.tutor.calNames || [] })));
+  return m.length === 1 ? m[0].id : null;
+}
+export function eventsFor(person, events, people) {
+  return events.filter((e) => eventOwner(e.name, people) === person.id);
 }
 /** Calendar events + saved session records, newest last. */
-export function mergeSessions(person, events) {
+export function mergeSessions(person, events, people) {
   const recs = new Map((person.tutor.sessions || []).map((r) => [r.id, r]));
   const out = [];
-  for (const ev of eventsFor(person, events)) {
+  for (const ev of eventsFor(person, events, people || [person])) {
     const r = recs.get(ev.id) || {}; recs.delete(ev.id);
     out.push({ kind: "skill", ...r, id: ev.id, start: ev.start, end: ev.end, calendar: true });
   }

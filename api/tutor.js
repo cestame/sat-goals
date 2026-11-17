@@ -1,14 +1,14 @@
 // Tutor-only: every student, every session. Requires the tutor's signed cookie.
 import { handler, readBody, ok, fail, requireTutor, ensureSeed, loadAll, loadStudent, readJSON, writeJSON, updateJSON, removePrefix,
   P, blankStudent, blankTutor, newId, str, norm, cleanProfile, cleanQuestion, cleanScore, cleanSessionPatch, cleanPlan,
-  calendarEvents, mergeSessions, upgradeStudent, upgradeTutor } from "./_lib/core.js";
+  calendarEvents, mergeSessions, eventOwner, upgradeStudent, upgradeTutor } from "./_lib/core.js";
 
 const STATUSES = ["New", "Active", "Paused", "Done"];
-const view = (p, events) => ({
+const view = (p, events, people) => ({
   id: p.id, name: p.student.name, createdAt: p.student.createdAt, profile: p.student.profile, scores: p.student.scores,
   studentQuestions: p.student.questions, hw: p.student.hw,
   status: p.tutor.status, calNames: p.tutor.calNames, notes: p.tutor.notes, plan: p.tutor.plan, questions: p.tutor.questions,
-  sessions: mergeSessions(p, events),
+  sessions: mergeSessions(p, events, people),
 });
 
 export default handler(async (req, res) => {
@@ -17,15 +17,14 @@ export default handler(async (req, res) => {
     await ensureSeed();
     const force = /[?&]refresh=1/.test(req.url || "");
     const [all, cal] = await Promise.all([loadAll(true), calendarEvents(force)]);
-    const keys = new Set(all.flatMap((p) => [p.student.name, ...(p.tutor.calNames || [])].map(norm)));
-    const unmatched = cal.events.filter((e) => !keys.has(norm(e.name)) && e.end > Date.now() - 14 * 86400e3);
-    return ok(res, { students: all.map((p) => view(p, cal.events)), unmatched,
+    const unmatched = cal.events.filter((e) => !eventOwner(e.name, all) && e.end > Date.now() - 14 * 86400e3);
+    return ok(res, { students: all.map((p) => view(p, cal.events, all)), unmatched,
       calendar: { configured: cal.configured, at: cal.at || null, error: cal.error || null } });
   }
   if (req.method !== "POST") return fail(res, 405, "Use POST");
   const b = await readBody(req);
   const id = str(b.id, 40);
-  const back = async (sid) => { const p = await loadStudent(sid, true); if (!p) return fail(res, 404, "Student not found"); const cal = await calendarEvents(false); return ok(res, { student: view(p, cal.events) }); };
+  const back = async (sid) => { const [all, cal] = await Promise.all([loadAll(true), calendarEvents(false)]); const p = all.find((x) => x.id === sid); if (!p) return fail(res, 404, "Student not found"); return ok(res, { student: view(p, cal.events, all) }); };
   const tutorUpdate = (fn) => updateJSON(P.tutor(id), blankTutor(""), (t) => fn(upgradeTutor(t)));
   const studentUpdate = (fn) => updateJSON(P.student(id), null, (s) => (s ? fn(upgradeStudent(s)) : undefined));
 
@@ -74,8 +73,8 @@ export default handler(async (req, res) => {
       const mins = Math.max(15, Math.min(300, Number(b.mins) || 60));
       const rec = { id: "m" + newId(), start, end: start + mins * 60e3, manual: true, kind: "skill", ...cleanSessionPatch(b.patch || {}) };
       await tutorUpdate((t) => { t.sessions.push(rec); return t; });
-      const r = await loadStudent(id, true); const cal = await calendarEvents(false);
-      return ok(res, { student: view(r, cal.events), sessionId: rec.id });
+      const [everyone, cal] = await Promise.all([loadAll(true), calendarEvents(false)]);
+      return ok(res, { student: view(everyone.find((x) => x.id === id), cal.events, everyone), sessionId: rec.id });
     }
     case "deleteSession":
       await tutorUpdate((t) => { t.sessions = t.sessions.filter((x) => x.id !== str(b.sessionId, 200)); return t; }); return back(id);
