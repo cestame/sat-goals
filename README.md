@@ -3,7 +3,7 @@
 A small site for my SAT tutoring students.
 
 - **Students** log in with just their name. Their dashboard shows their next session, past sessions (each with its own page: session plan, notes, homework), scores, optional goals, and a log of practice questions by question ID, skill, category and difficulty.
-- **The tutor** logs in with a name and password to see every student: this week's sessions with prep check-offs, editable session pages (plan, Granola notes, homework, focus skill, private note), weakest skills, struggled questions, scores, course plans and private notes.
+- **The tutor** logs in with a name and password to see every student: this week's sessions with prep check-offs, editable session pages (plan, Granola notes, homework, focus skill, private note), weakest skills, struggled questions, scores, course plans and private notes. The tutor can upload files (PDFs, images, Office documents) to a student's Resources or attach them to homework; files stay in private storage and only that student and the tutor can open them.
 
 It runs on Vercel. Student data is kept in a private Vercel Blob store, never in this repository.
 

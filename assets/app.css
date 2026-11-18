@@ -241,3 +241,16 @@ details > summary{cursor:pointer;list-style:none}
 details > summary::-webkit-details-marker{display:none}
 .loading{padding:40px;text-align:center;color:var(--muted)}
 @media (prefers-reduced-motion: reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+/* files */
+.files{display:grid;gap:6px}
+.file{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line-2);border-radius:10px;background:var(--surface-2)}
+.ficon{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;font:700 10px var(--mono);letter-spacing:.02em;background:var(--brand-soft);color:var(--brand-text)}
+.ficon.kPDF{background:var(--bad-soft);color:var(--bad)}
+.ficon.kIMG{background:var(--good-soft);color:var(--good)}
+.ficon.kXLS{background:var(--good-soft);color:var(--good)}
+.ficon.kPPT{background:var(--warn-soft);color:var(--warn)}
+.fmeta{display:grid;min-width:0}
+.fname{font-weight:600;text-decoration:none;color:var(--ink);overflow-wrap:anywhere;line-height:1.35}
+.fname:hover{text-decoration:underline}
+@media (max-width:520px){.file{grid-template-columns:auto minmax(0,1fr) auto}.file .btn.ghost.sm:not(.icon){display:none}}

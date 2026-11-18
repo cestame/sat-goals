@@ -2,7 +2,7 @@
   "use strict";
   const { $, h, toast, api, logout, CATEGORIES, KIND, fmtDate, fmtDay, fmtShort, fmtTime, daysUntil, relDay, initials,
     sessionTitle, sessionSub, datebox, splitSessions, markdown, field, modal, questionForm, filterQuestions, questionFilters, questionTable,
-    skillBars, scoreChart, scoreList, openScoreModal, goalsCard, scoreTotal, homeworkCard, dueBadge } = SAT;
+    skillBars, scoreChart, scoreList, openScoreModal, goalsCard, scoreTotal, homeworkCard, dueBadge, fileList } = SAT;
   let me = null;
   const qf = { result: "miss" };
   const view = () => $("#view");
@@ -61,11 +61,14 @@
     const qCard = h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Question practice" }), h("a", { href: "#questions", class: "btn sm", text: "Log a question" })),
       h("div", { class: "card-b" }, h("p", { class: "small muted", text: `${me.questions.length} logged · ${misses} to review` }), skillBars(me.questions, 4)));
 
-    const hwCard = homeworkCard(me.sessions, { isDone: (x) => x.hwDone, href: (x) => "#session/" + encodeURIComponent(x.id), emptyText: "No homework right now. Nice!",
+    const resFiles = (me.files || []).filter((f) => f.scope !== "session");
+    const resCard = resFiles.length ? h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Resources" }), h("span", { class: "xs muted", text: `${resFiles.length} file${resFiles.length === 1 ? "" : "s"}` })),
+      h("div", { class: "card-b" }, fileList(resFiles, { studentId: me.id }))) : null;
+    const hwCard = homeworkCard(me.sessions, { files: me.files || [], studentId: me.id, isDone: (x) => x.hwDone, href: (x) => "#session/" + encodeURIComponent(x.id), emptyText: "No homework right now. Nice!",
       onToggle: async (x, done) => { try { await act({ op: "homework", sessionId: x.id, done }); render(); toast(done ? "Nice work!" : "Marked not done"); } catch (e) { toast(e.message); } } });
     view().replaceChildren(
       h("div", { class: "page-head" }, h("div", { class: "grow" }, h("span", { class: "eyebrow", text: new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) }), h("h1", { text: `Welcome back, ${me.name.split(" ")[0]}` }))),
-      h("div", { class: "cols" }, h("div", { class: "stack" }, hero, hwCard, upcomingCard, pastCard, qCard), h("div", { class: "stack" }, testCard, scoresCard, goals)));
+      h("div", { class: "cols" }, h("div", { class: "stack" }, hero, hwCard, upcomingCard, pastCard, qCard), h("div", { class: "stack" }, testCard, resCard, scoresCard, goals)));
   }
   function openTestModal() {
     const p = me.profile || {};
@@ -93,9 +96,10 @@
     const past = (s.end || s.start) < Date.now();
     const qs = me.questions.filter((q) => q.sessionId === s.id);
     const c = s.category ? CATEGORIES[s.category] : null;
-    const hw = s.homework ? h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Homework" }),
+    const sFiles = (me.files || []).filter((f) => f.scope === "session" && f.sessionId === s.id);
+    const hw = s.homework || sFiles.length ? h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Homework" }),
       h("label", { class: "prep" + (s.hwDone ? " on" : ""), style: "position:relative" }, h("input", { type: "checkbox", checked: s.hwDone, onchange: async (e) => { try { await act({ op: "homework", sessionId: s.id, done: e.target.checked }); render(); toast(e.target.checked ? "Nice work!" : "Marked not done"); } catch (x) { toast(x.message); } } }), h("span", { class: "o" }), s.hwDone ? "Done" : "Mark done")),
-      h("div", { class: "card-b" }, markdown(s.homework), h("div", {}, dueBadge(s.homeworkDue, s.hwDone)))) : null;
+      h("div", { class: "card-b" }, s.homework ? markdown(s.homework) : null, s.homework ? h("div", {}, dueBadge(s.homeworkDue, s.hwDone)) : null, fileList(sFiles, { studentId: me.id })))  : null;
     view().replaceChildren(
       h("nav", { class: "crumbs", "aria-label": "Breadcrumb" }, h("a", { href: "#sessions", text: "Sessions" }), h("span", { text: "/" }), h("span", { text: fmtShort(s.start) })),
       h("div", { class: "page-head" }, h("div", { class: "grow" },

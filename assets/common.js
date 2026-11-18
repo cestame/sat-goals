@@ -264,6 +264,59 @@ window.SAT = (() => {
     }, "Add score");
   }
 
+  /* ---------- files ---------- */
+  const fmtSize = (n) => (!n ? "" : n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(n < 10485760 ? 1 : 0)} MB`);
+  function fileKind(f) {
+    const t = f.type || "", n = (f.name || "").toLowerCase();
+    if (t === "application/pdf" || n.endsWith(".pdf")) return "PDF";
+    if (t.startsWith("image/")) return "IMG";
+    if (/word|\.docx?$/.test(t + n)) return "DOC";
+    if (/sheet|excel|\.xlsx?$|csv/.test(t + n)) return "XLS";
+    if (/presentation|powerpoint|\.pptx?$/.test(t + n)) return "PPT";
+    if (/zip/.test(t)) return "ZIP";
+    return "TXT";
+  }
+  const fileHref = (studentId, f, dl) => `/api/file?s=${encodeURIComponent(studentId)}&f=${encodeURIComponent(f.id)}${dl ? "&dl=1" : ""}`;
+  function fileList(files, { studentId, onDelete, empty } = {}) {
+    if (!files.length) return empty ? h("p", { class: "muted small", text: empty }) : null;
+    return h("div", { class: "files" }, files.map((f) => h("div", { class: "file" },
+      h("span", { class: "ficon k" + fileKind(f), "aria-hidden": "true", text: fileKind(f) }),
+      h("div", { class: "fmeta" }, h("a", { href: fileHref(studentId, f), target: "_blank", rel: "noopener", class: "fname", text: f.name }),
+        h("span", { class: "xs muted", text: [fmtSize(f.size), f.at ? fmtDate(new Date(f.at).toISOString().slice(0, 10)) : ""].filter(Boolean).join(" · ") })),
+      h("a", { class: "btn ghost sm", href: fileHref(studentId, f, true), "aria-label": `Download ${f.name}`, text: "Download" }),
+      onDelete ? h("button", { type: "button", class: "btn ghost icon sm danger", "aria-label": `Delete ${f.name}`, text: "✕", onclick: () => onDelete(f) }) : null)));
+  }
+  const ACCEPT = ".pdf,.png,.jpg,.jpeg,.gif,.webp,.heic,.txt,.csv,.md,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip";
+  /** Upload button (tutor only): sends files straight to private storage, then records them on the student. */
+  function uploadButton(label, { studentId, scope, sessionId, onDone, addRecord }) {
+    const input = h("input", { type: "file", multiple: true, accept: ACCEPT, hidden: true });
+    const status = h("span", { class: "xs muted", "aria-live": "polite" });
+    const btn = h("button", { type: "button", class: "btn sm", text: label, onclick: () => input.click() });
+    input.addEventListener("change", async () => {
+      const files = [...input.files]; input.value = ""; if (!files.length) return;
+      const big = files.find((f) => f.size > 50 * 1024 * 1024);
+      if (big) { toast(`${big.name} is over 50 MB.`); return; }
+      btn.disabled = true;
+      let lib;
+      try { lib = await import("/assets/vendor/blob-client.js"); } catch { toast("Couldn't load the uploader. Refresh and try again."); btn.disabled = false; return; }
+      let done = 0;
+      for (const f of files) {
+        try {
+          const safe = f.name.replace(/[^\w.\- ]+/g, "_").slice(-120) || "file";
+          const r = await lib.upload(`students/${studentId}/files/${safe}`, f, {
+            access: "private", handleUploadUrl: "/api/upload", clientPayload: JSON.stringify({ studentId }), contentType: f.type || undefined,
+            onUploadProgress: (p) => { status.textContent = `Uploading ${f.name}… ${Math.round(p.percentage)}%`; },
+          });
+          await addRecord({ pathname: r.pathname, name: f.name, size: f.size, type: f.type || r.contentType, scope, sessionId });
+          done++;
+        } catch (e) { toast(`${f.name}: ${e.message || "upload failed"}`); }
+      }
+      status.textContent = ""; btn.disabled = false;
+      if (done) { toast(done === 1 ? "File uploaded" : `${done} files uploaded`); onDone && onDone(); }
+    });
+    return h("span", { class: "row", style: "gap:8px" }, status, btn, input);
+  }
+
   /* ---------- homework topic suggestions (tutor only) ---------- */
   // Words that point to an SAT skill when they show up in session notes.
   const SKILL_HINTS = [
@@ -327,13 +380,14 @@ window.SAT = (() => {
     const done = items.filter((x) => x.done).sort((a, b) => b.s.start - a.s.start);
     return { open, done };
   }
-  function homeworkCard(sessions, { isDone, onToggle, href, title = "Homework", emptyText = "No homework right now.", doneLimit = 3 }) {
+  function homeworkCard(sessions, { isDone, onToggle, href, title = "Homework", emptyText = "No homework right now.", doneLimit = 3, files = [], studentId }) {
     const { open, done } = homeworkItems(sessions, isDone);
     const row = ({ s, done: isD, due }) => h("div", { class: "goal" + (isD ? " done" : ""), style: "align-items:flex-start" },
       onToggle ? h("input", { type: "checkbox", checked: isD, "aria-label": `Homework done: ${s.homework.slice(0, 60)}`, onchange: (e) => onToggle(s, e.target.checked) }) : null,
       h("div", { class: "t", style: "display:grid;gap:4px" },
         h("div", { style: "white-space:pre-wrap", text: s.homework }),
-        h("div", { class: "row", style: "gap:8px" }, dueBadge(due, isD), h("a", { class: "xs", href: href(s), text: "From " + fmtShort(s.start) }))));
+        h("div", { class: "row", style: "gap:8px" }, dueBadge(due, isD), h("a", { class: "xs", href: href(s), text: "From " + fmtShort(s.start) })),
+        fileList(files.filter((f) => f.scope === "session" && f.sessionId === s.id), { studentId })));
     const overdue = open.filter((x) => x.due && daysUntil(x.due) < 0).length;
     return h("div", { class: "card" },
       h("div", { class: "card-h" }, h("h3", { text: title }), overdue ? h("span", { class: "badge bad", text: `${overdue} overdue` }) : open.length ? h("span", { class: "xs muted", text: `${open.length} to do` }) : null),
@@ -381,5 +435,5 @@ window.SAT = (() => {
 
   return { $, h, toast, api, logout, CATEGORIES, SECTION, KIND, RESULT, catOf, ymd, today, fmtDate, fmtDay, fmtShort, fmtTime, daysUntil, relDay, isToday, ago, initials,
     sessionTitle, sessionSub, datebox, splitSessions, markdown, field, categorySelect, skillSelect, modal,
-    questionForm, filterQuestions, questionFilters, questionTable, skillStats, skillBars, scoreTotal, scoreChart, scoreList, openScoreModal, goalsCard, dueBadge, homeworkItems, homeworkCard, saver, hasUnsaved, clearUnsaved, homeworkTopics, needsHomework };
+    questionForm, filterQuestions, questionFilters, questionTable, skillStats, skillBars, scoreTotal, scoreChart, scoreList, openScoreModal, goalsCard, dueBadge, homeworkItems, homeworkCard, saver, hasUnsaved, clearUnsaved, homeworkTopics, needsHomework, fmtSize, fileKind, fileHref, fileList, uploadButton };
 })();

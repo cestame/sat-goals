@@ -1,6 +1,6 @@
 // Everything a logged-in student can do. Their id comes only from the signed cookie.
 import { handler, readBody, ok, fail, requireStudent, loadStudent, loadAll, updateJSON, P, cleanProfile, cleanQuestion, cleanScore,
-  calendarEvents, mergeSessions, studentSafeSession, str, upgradeStudent } from "./_lib/core.js";
+  calendarEvents, mergeSessions, studentSafeSession, str, upgradeStudent, publicFile } from "./_lib/core.js";
 
 async function view(id) {
   const [all, cal] = await Promise.all([loadAll(true), calendarEvents(false)]);
@@ -8,7 +8,8 @@ async function view(id) {
   const s = p.student, t = p.tutor;
   const sessions = mergeSessions(p, cal.events, all).filter((x) => !x.cancelled).map((x) => studentSafeSession(x, s.hw));
   const plan = t.plan && t.plan.steps && t.plan.steps.length ? t.plan : null;
-  return { id, name: s.name, profile: s.profile, scores: s.scores, sessions, plan,
+  const files = (t.files || []).map(publicFile);
+  return { id, name: s.name, profile: s.profile, scores: s.scores, sessions, plan, files,
     questions: [...s.questions, ...(t.questions || [])].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.at - a.at)) };
 }
 

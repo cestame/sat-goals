@@ -2,7 +2,7 @@
   "use strict";
   const { $, h, toast, api, logout, CATEGORIES, KIND, ymd, today, fmtDate, fmtDay, fmtShort, fmtTime, daysUntil, relDay, ago, initials,
     sessionTitle, sessionSub, datebox, splitSessions, markdown, field, categorySelect, skillSelect, modal,
-    questionForm, filterQuestions, questionFilters, questionTable, skillStats, skillBars, scoreTotal, scoreChart, scoreList, openScoreModal, goalsCard, homeworkCard, dueBadge, saver, hasUnsaved, clearUnsaved, homeworkTopics, needsHomework } = SAT;
+    questionForm, filterQuestions, questionFilters, questionTable, skillStats, skillBars, scoreTotal, scoreChart, scoreList, openScoreModal, goalsCard, homeworkCard, dueBadge, saver, hasUnsaved, clearUnsaved, homeworkTopics, needsHomework, fileList, uploadButton } = SAT;
   const STATUSES = ["Active", "New", "Paused", "Done"];
   const S = { students: new Map(), cal: {}, unmatched: [], loaded: false, qf: { result: "miss" } };
   const view = () => $("#view");
@@ -152,16 +152,24 @@
       h("div", { class: "stack" },
         h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Upcoming sessions" }), h("button", { type: "button", class: "btn sm", text: "Add session", onclick: () => openAddSession(st) })),
           h("div", { class: "list" }, upcoming.length ? upcoming.slice(0, 4).map((s) => sessionRow(st, s)) : [h("div", { class: "empty", text: `Nothing scheduled. Title an event “SAT - ${st.name}” on your Tutoring calendar, or add a session here.` })])),
-        homeworkCard(st.sessions || [], { isDone: (s) => st.hw && st.hw[s.id], href: (s) => `#session/${id}/${encodeURIComponent(s.id)}`, emptyText: "No homework assigned. Add it on a session page.", title: "Homework" }),
+        homeworkCard(st.sessions || [], { isDone: (s) => st.hw && st.hw[s.id], href: (s) => `#session/${id}/${encodeURIComponent(s.id)}`, emptyText: "No homework assigned. Add it on a session page.", title: "Homework", files: st.files || [], studentId: id }),
         sug ? h("div", { class: "callout" }, h("strong", { text: "Suggested next skill: " }), `${sug.skill} (${CATEGORIES[sug.cat].name}), ${sug.right}/${sug.n} right so far.`) : null,
         h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Previous sessions" }), h("a", { class: "small", href: `#student/${id}/sessions`, text: "All sessions" })),
           h("div", { class: "list" }, past.length ? past.slice(0, 5).map((s) => sessionRow(st, s)) : [h("div", { class: "empty", text: "No past sessions yet." })])),
         h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Weakest skills" }), h("a", { class: "small", href: `#student/${id}/questions`, text: "Question log" })), h("div", { class: "card-b" }, skillBars(st.allQuestions, 6)))),
       h("div", { class: "stack" },
+        resourcesCard(st),
         goalsCard((p.goals || []).map((g) => ({ ...g })), (goals) => safe(op({ op: "profile", id, profile: { goals } })), { id: "tg_new", title: "Goals", badge: "Student can edit too", empty: "No goals yet." }),
         h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Scores" }), h("button", { type: "button", class: "btn sm", text: "Add score", onclick: () => openScoreModal(async (score) => { await op({ op: "addScore", id, score }); render(); toast("Score added"); }) })),
           h("div", { class: "card-b" }, chart, scoreList(st.scores || [], { canDelete: () => true, onDelete: (s) => safe(op({ op: "deleteScore", id, scoreId: s.id })).then(render) }))),
         p.about ? h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "About" })), h("div", { class: "card-b" }, markdown(p.about))) : null));
+  }
+  function resourcesCard(st) {
+    const id = st.id, files = (st.files || []).filter((f) => f.scope !== "session");
+    const delFile = (f) => { if (!confirm(`Delete ${f.name}? The student will no longer see it.`)) return; safe(op({ op: "deleteFile", id, fileId: f.id })).then(() => { render(); toast("Deleted"); }); };
+    return h("div", { class: "card" },
+      h("div", { class: "card-h" }, h("h3", { text: "Resources" }), uploadButton("Upload files", { studentId: id, scope: "profile", addRecord: (file) => op({ op: "addFile", id, file }), onDone: () => { if (!hasUnsaved()) render(); } })),
+      h("div", { class: "card-b" }, fileList(files, { studentId: id, onDelete: delFile, empty: "No files yet. Upload practice tests, worksheets or answer keys. The student can see and download them." })));
   }
   function studentSessions(st) {
     const { upcoming, past } = splitSessions(st.sessions || []);
@@ -313,7 +321,12 @@
           hwReminder,
           h("div", { class: "card", id: "hwcard" }, h("div", { class: "card-h" }, h("h3", { text: "Homework" }), s.homework ? dueBadge(s.homeworkDue, hwDone) : null),
             h("div", { class: "card-b" }, hw, h("div", { class: "row", style: "align-items:flex-end" }, h("div", { style: "width:200px" }, field("Due date", due)), h("span", { class: "grow" }), svHw.status, svHw.btn),
-              s.homework ? h("p", { class: "xs muted", text: hwDone ? "The student marked this done." : "Not marked done yet." }) : null)),
+              s.homework ? h("p", { class: "xs muted", text: hwDone ? "The student marked this done." : "Not marked done yet." }) : null,
+              h("div", { style: "display:grid;gap:8px;border-top:1px solid var(--line-2);padding-top:12px" },
+                h("div", { class: "row" }, h("strong", { class: "small grow", text: "Homework files" }),
+                  uploadButton("Attach files", { studentId: st.id, scope: "session", sessionId: s.id, addRecord: (file) => op({ op: "addFile", id: st.id, file }), onDone: refreshIfClean })),
+                fileList((st.files || []).filter((f) => f.scope === "session" && f.sessionId === s.id), { studentId: st.id, empty: "No files attached. Students see attached files with this homework.",
+                  onDelete: (f) => { if (!confirm(`Delete ${f.name}?`)) return; safe(op({ op: "deleteFile", id: st.id, fileId: f.id })).then(refreshIfClean); } })))),
           h("div", { class: "card" }, h("div", { class: "card-h" }, h("h3", { text: "Questions from this session" }), h("span", { class: "xs muted", text: `${qs.length}` })),
             h("div", { class: "card-b tight" }, questionTable(qs, { empty: "No questions logged for this session yet.", sessions: st.sessions, showBy: true, canDelete: () => true, onDelete: (q) => safe(op({ op: "deleteQuestion", id: st.id, qid: q.id })).then(refreshIfClean) })),
             h("details", {}, h("summary", { class: "card-h", style: "border-top:1px solid var(--line-2)" }, h("span", { class: "linkbtn", text: "+ Log a question from this session" })),

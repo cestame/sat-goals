@@ -1,7 +1,7 @@
 // Tutor-only: every student, every session. Requires the tutor's signed cookie.
 import { handler, readBody, ok, fail, requireTutor, ensureSeed, loadAll, loadStudent, readJSON, writeJSON, updateJSON, removePrefix,
   P, blankStudent, blankTutor, newId, str, norm, cleanProfile, cleanQuestion, cleanScore, cleanSessionPatch, cleanPlan,
-  calendarEvents, mergeSessions, eventOwner, upgradeStudent, upgradeTutor } from "./_lib/core.js";
+  calendarEvents, mergeSessions, eventOwner, upgradeStudent, upgradeTutor, cleanFileRecord, publicFile, head, del } from "./_lib/core.js";
 
 const STATUSES = ["New", "Active", "Paused", "Done"];
 const view = (p, events, people) => ({
@@ -9,6 +9,7 @@ const view = (p, events, people) => ({
   studentQuestions: p.student.questions, hw: p.student.hw,
   status: p.tutor.status, calNames: p.tutor.calNames, notes: p.tutor.notes, plan: p.tutor.plan, questions: p.tutor.questions,
   sessions: mergeSessions(p, events, people),
+  files: (p.tutor.files || []).map(publicFile),
 });
 
 export default handler(async (req, res) => {
@@ -75,6 +76,20 @@ export default handler(async (req, res) => {
       await tutorUpdate((t) => { t.sessions.push(rec); return t; });
       const [everyone, cal] = await Promise.all([loadAll(true), calendarEvents(false)]);
       return ok(res, { student: view(everyone.find((x) => x.id === id), cal.events, everyone), sessionId: rec.id });
+    }
+    case "addFile": {
+      const rec = cleanFileRecord(b.file, id);
+      const meta = await head(rec.pathname).catch(() => null);
+      if (!meta) return fail(res, 400, "The upload didn't finish. Try again.");
+      rec.size = meta.size || rec.size;
+      await tutorUpdate((t) => { t.files = [...(t.files || []), rec].slice(-500); return t; });
+      return back(id);
+    }
+    case "deleteFile": {
+      const fid = str(b.fileId, 40); let gone = null;
+      await tutorUpdate((t) => { gone = (t.files || []).find((f) => f.id === fid); t.files = (t.files || []).filter((f) => f.id !== fid); return t; });
+      if (gone) await del(gone.pathname).catch(() => {});
+      return back(id);
     }
     case "deleteSession":
       await tutorUpdate((t) => { t.sessions = t.sessions.filter((x) => x.id !== str(b.sessionId, 200)); return t; }); return back(id);

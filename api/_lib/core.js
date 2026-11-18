@@ -341,6 +341,15 @@ export function cleanSessionPatch(p = {}) {
   if ("practiceScore" in p) out.practiceScore = score(p.practiceScore, 400, 1600);
   return out;
 }
+export function cleanFileRecord(o = {}, studentId) {
+  const pathname = str(o.pathname, 400);
+  if (!pathname.startsWith(`students/${studentId}/files/`) || pathname.includes("..")) throw Object.assign(new Error("Bad file path"), { status: 400 });
+  return { id: newId(), pathname, name: str(o.name, 200).trim() || "file", size: Math.max(0, Math.min(1e9, Number(o.size) || 0)), type: str(o.type, 120),
+    scope: o.scope === "session" ? "session" : "profile", sessionId: o.scope === "session" ? str(o.sessionId, 200) : undefined, at: now() };
+}
+export const publicFile = (f) => ({ id: f.id, name: f.name, size: f.size, type: f.type, scope: f.scope, sessionId: f.sessionId, at: f.at });
+export { head, del };
+
 export function cleanPlan(p = {}) {
   return { summary: str(p.summary, 400),
     steps: (Array.isArray(p.steps) ? p.steps : []).slice(0, 20).map((s) => ({ id: str(s.id, 40) || newId(), title: str(s.title, 140), focus: str(s.focus, 500), done: !!s.done })) };
